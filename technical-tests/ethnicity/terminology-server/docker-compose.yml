@@ -1,0 +1,21 @@
+services:
+  fhir:
+    container_name: fhir-server
+    image: "hapiproject/hapi:latest"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./hapi.application.yaml:/app/config/application.yaml
+    depends_on:
+      - db
+
+  db:
+    container_name: fhir-store
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: admin
+      POSTGRES_USER: admin
+      POSTGRES_DB: hapi
+    volumes:
+      - ./hapi.postgress.data:/var/lib/postgresql/data

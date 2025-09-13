@@ -1,0 +1,24 @@
+{
+  "resourceType": "ValueSet",
+  "id": "ons_data_dictionary_ethnicity_2021_6a_1",
+  "url": "https://nhssomerset.nhs.uk/ldp/valueset/ons_data_dictionary_ethnicity_2021_6a_1",
+  "status": "active",
+  "compose": {
+    "include": [
+      {
+        "system": "https://nhssomerset.nhs.uk/ldp/codesystem/ons_data_dictionary",
+        "concept": [
+          { "code": "6a_1" }
+        ]
+      },
+      {
+        "system": "https://nhssomerset.nhs.uk/ldp/codesystem/ons_data_dictionary",
+        "filter": [{
+          "property": "concept",
+          "op": "is-a",
+          "value": "6a_1"
+        }]
+      }      
+    ]
+  }
+}

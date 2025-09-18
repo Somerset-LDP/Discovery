@@ -84,30 +84,38 @@ def load_and_clean_nhs_csv(
     if df.shape[1] > 1:
         df = df.iloc[:, [0]]
     df.columns = ['nhs']
-    logger.info(f'Initial {filetype} count: {len(df)}')
+    logger.info(f'Initial {filetype} count: {len(df)} in file {filename}')
     df = clean_and_validate_nhs_df(df, 'nhs')
     df = df.drop_duplicates(subset=['nhs'])
-    logger.info(f'Cleaned, validated and deduplicated {filetype} count: {len(df)}')
+    logger.info(f'Cleaned, validated and deduplicated {filetype} count: {len(df)} in file {filename}')
     return df, filename
 
 
 def lambda_handler(event, context) -> dict:
     try:
-        sft_file = os.getenv("SFT_FILE_PATH")
-        sft_checksum = os.getenv('SFT_CHECKSUM_PATH')
+        # ENV variables
+        sft_file_prefix = os.getenv("SFT_FILE_PATH")
+        sft_checksum_prefix = os.getenv('SFT_CHECKSUM_PATH')
         gp_files_prefix = os.getenv('GP_FILES_PREFIX')
         gp_checksums_prefix = os.getenv('GP_CHECKSUMS_PREFIX')
         cohort_key = os.getenv('COHORT_KEY', 'cohort/cohort.csv')
-        sft_bucket, sft_key = sft_file.split('/', 1)
-        sft_checksum_bucket, sft_checksum_key = sft_checksum.split('/', 1)
-        gp_bucket, gp_prefix = gp_files_prefix.split('/', 1)
-        gp_checksum_bucket, gp_checksum_prefix = gp_checksums_prefix.split('/', 1)
 
-        # SFT
+        # SFT section
+        sft_bucket, sft_prefix = sft_file_prefix.split('/', 1)
+        sft_files = list_s3_files(sft_bucket, sft_prefix)
+        sft_key = sft_files[0]
+        sft_checksum_bucket, sft_checksum_prefix = sft_checksum_prefix.split('/', 1)
+        sft_checksum_files = list_s3_files(sft_checksum_bucket, sft_checksum_prefix)
+        sft_sha_files = [f for f in sft_checksum_files if f.endswith('.sha256')]
+        if len(sft_sha_files) != 1:
+            raise FileNotFoundError(f'Expected exactly one SFT checksum file in s3://{sft_checksum_bucket}/{sft_checksum_prefix}, found: {sft_sha_files}')
+        sft_checksum_key = sft_sha_files[0]
         sft_df, _ = load_and_clean_nhs_csv(sft_bucket, sft_key, sft_checksum_bucket, sft_checksum_key, filetype='SFT')
 
-        # GP's
-        gp_file_keys = sorted([k for k in list_s3_files(gp_bucket, gp_prefix) if k.endswith('.csv')])
+        # GP section
+        gp_bucket, gp_prefix = gp_files_prefix.split('/', 1)
+        gp_checksum_bucket, gp_checksum_prefix = gp_checksums_prefix.split('/', 1)
+        gp_file_keys = sorted([k for k in list_s3_files(gp_bucket, gp_prefix)])
         intersections = []
         for gp_key in gp_file_keys:
             filename = gp_key.split('/')[-1]
@@ -117,12 +125,13 @@ def lambda_handler(event, context) -> dict:
             intersections.append(intersection)
             logger.info(f'Intersection {filename} count: {len(intersection)}')
         if intersections:
-            all_common_df = pd.concat(intersections).drop_duplicates()
+            all_common_df = pd.concat(intersections)
+            logger.info(f'Union unique count before dedup: {len(all_common_df["nhs"])}')
+            all_common_df = all_common_df.drop_duplicates()
         else:
             all_common_df = pd.DataFrame(columns=['nhs'])
             logger.warning('No intersections found, final union is empty.')
         logger.info(f'Final union count: {len(all_common_df)}')
-
         write_cohort(gp_bucket, cohort_key, set(all_common_df['nhs']))
         delete_and_log_remaining(sft_bucket, [sft_key], os.path.dirname(sft_key))
         delete_and_log_remaining(sft_checksum_bucket, [sft_checksum_key], os.path.dirname(sft_checksum_key))

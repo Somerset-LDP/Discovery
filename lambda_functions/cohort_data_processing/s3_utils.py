@@ -2,12 +2,13 @@ import logging
 import csv
 from io import StringIO
 import boto3
+from typing import List, Set
 
 
 s3_client = boto3.client('s3')
 
 
-def list_s3_files(bucket, prefix):
+def list_s3_files(bucket: str, prefix: str) -> List[str]:
     try:
         logging.info(f"Listing files in S3 bucket, path: s3://{bucket}/{prefix}")
         response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
@@ -20,7 +21,7 @@ def list_s3_files(bucket, prefix):
         raise
 
 
-def get_s3_object_content(bucket, key):
+def get_s3_object_content(bucket: str, key: str) -> bytes:
     try:
         response = s3_client.get_object(Bucket=bucket, Key=key)
         return response['Body'].read()
@@ -29,7 +30,7 @@ def get_s3_object_content(bucket, key):
         raise
 
 
-def write_to_s3(bucket, key, nhs_set):
+def write_to_s3(bucket: str, key: str, nhs_set: Set[str]) -> None:
     try:
         csv_buffer = StringIO()
         writer = csv.writer(csv_buffer)
@@ -42,7 +43,7 @@ def write_to_s3(bucket, key, nhs_set):
         raise
 
 
-def delete_s3_objects(bucket, keys):
+def delete_s3_objects(bucket: str, keys: List[str]) -> None:
     try:
         for key in keys:
             logging.info(f'Deleting s3://{bucket}/{key}')

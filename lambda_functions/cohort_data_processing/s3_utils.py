@@ -11,7 +11,10 @@ def list_s3_files(bucket, prefix):
     try:
         logging.info(f"Listing files in S3 bucket, path: s3://{bucket}/{prefix}")
         response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        return [obj["Key"] for obj in response.get("Contents", [])]
+        keys = [obj["Key"] for obj in response.get("Contents", [])]
+        # Remove the prefix itself (folder) and any folders
+        filtered = [k for k in keys if k != prefix and not k.endswith('/')]
+        return filtered
     except Exception as e:
         logging.error(f"Failed to list files in s3://{bucket}/{prefix}: {e}")
         raise

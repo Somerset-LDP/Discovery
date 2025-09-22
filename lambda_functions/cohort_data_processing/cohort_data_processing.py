@@ -100,7 +100,7 @@ def lambda_handler(event, context) -> dict:
         gp_checksums_prefix = os.getenv('GP_CHECKSUMS_PREFIX')
         cohort_key = os.getenv('COHORT_KEY', 'cohort/cohort.csv')
 
-        # SFT section
+        # SFT
         sft_bucket, sft_prefix = sft_file_prefix.split('/', 1)
         sft_files = list_s3_files(sft_bucket, sft_prefix)
         sft_key = sft_files[0]
@@ -112,7 +112,7 @@ def lambda_handler(event, context) -> dict:
         sft_checksum_key = sft_sha_files[0]
         sft_df, _ = load_and_clean_nhs_csv(sft_bucket, sft_key, sft_checksum_bucket, sft_checksum_key, filetype='SFT')
 
-        # GP section
+        # GP's
         gp_bucket, gp_prefix = gp_files_prefix.split('/', 1)
         gp_checksum_bucket, gp_checksum_prefix = gp_checksums_prefix.split('/', 1)
         gp_file_keys = sorted([k for k in list_s3_files(gp_bucket, gp_prefix)])

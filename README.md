@@ -15,6 +15,7 @@ Each technical test has it's own sub-folder under [technical-tests](./technical-
 | Technical test   | Summary                                                                                                                                                                          | Main contact    |
 |------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
 | [Ethnicity coding](./technical-tests/ethnicity/) | This project demonstrates how to manage and translate between different ethnicity code systems using a [FHIR terminology server](https://r4.fhir.space/terminology-module.html). | Will Weatherill |
+| [age-bmi](./technical-tests/age-bmi/) | This project demonstrates the ability of our platform to support aggregation over configurable value ranges, such as age brackets or BMI ranges. | Will Weatherill |
 |                  |                                                                                                                                                                                  |                 |
 |                  |                                                                                                                                                                                  |                 |
 

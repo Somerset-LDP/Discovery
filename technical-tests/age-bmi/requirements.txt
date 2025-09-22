@@ -1,0 +1,6 @@
+psycopg2-binary==2.9.10
+python-dotenv==1.1.1
+pandas==2.3.2
+streamlit==1.49.1
+pytest==8.4.2
+testcontainers==4.13.0

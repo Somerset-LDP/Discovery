@@ -1,0 +1,11 @@
+-- Aggregate patients by age range across multiple use cases
+SELECT 
+    ar.use_case,
+    ar.label AS age_range,
+    COUNT(p.patient_id) AS patient_count
+FROM patient p
+JOIN age_range ar
+  ON (EXTRACT(YEAR FROM CURRENT_DATE) - EXTRACT(YEAR FROM p.dob))
+     BETWEEN ar.min_age AND ar.max_age
+GROUP BY ar.use_case, ar.label
+ORDER BY ar.use_case, ar.min_age;

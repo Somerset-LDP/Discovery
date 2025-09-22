@@ -10,7 +10,6 @@ s3_client = boto3.client('s3')
 
 def list_s3_files(bucket: str, prefix: str) -> List[str]:
     try:
-        logging.info(f"Listing files in S3 bucket, path: s3://{bucket}/{prefix}")
         response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
         keys = [obj["Key"] for obj in response.get("Contents", [])]
         # Remove the prefix itself (folder) and any folders

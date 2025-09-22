@@ -155,10 +155,9 @@ def test_load_and_clean_nhs_csv(mock_validate_checksum, mock_get_s3_object_conte
     sft_bytes = sft_csv.encode("utf-8")
     checksum_bytes = b"fakechecksum"
     mock_get_s3_object_content.side_effect = [sft_bytes, checksum_bytes]
-    df, filename = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
+    df = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
     assert sorted(list(df["nhs"])) == ["8314495581", "9434765919"]
     mock_validate_checksum.assert_called_once_with(sft_bytes, checksum_bytes, "key")
-    assert filename == "key"
 
 
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_s3_object_content")
@@ -168,9 +167,8 @@ def test_load_and_clean_nhs_csv_extra_columns(mock_validate_checksum, mock_get_s
     sft_bytes = sft_csv.encode("utf-8")
     checksum_bytes = b"fakechecksum"
     mock_get_s3_object_content.side_effect = [sft_bytes, checksum_bytes]
-    df, filename = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
+    df = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
     assert sorted(list(df["nhs"])) == ["8132262247", "9434765919"]
-    assert filename == "key"
 
 
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_s3_object_content")
@@ -212,7 +210,6 @@ def test_load_and_clean_nhs_csv_removes_duplicates(mock_validate_checksum, mock_
     sft_bytes = sft_csv.encode("utf-8")
     checksum_bytes = b"fakechecksum"
     mock_get_s3_object_content.side_effect = [sft_bytes, checksum_bytes]
-    df, filename = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
+    df = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
     assert list(df["nhs"]) == ["9434765919"]
     assert len(df) == 1
-    assert filename == "key"

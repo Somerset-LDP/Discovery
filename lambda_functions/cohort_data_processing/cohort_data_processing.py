@@ -29,7 +29,7 @@ def get_files(file_prefix):
 def validate_checksum(content: bytes, checksum_content: bytes, key: str) -> None:
     try:
         actual_checksum = hashlib.sha256(content).hexdigest()
-        expected_checksum = checksum_content.decode('utf-8').strip()
+        expected_checksum = checksum_content.decode(ENCODING).strip()
         if actual_checksum != expected_checksum:
             logger.error(f'Checksum mismatch for {key}: expected {expected_checksum}, got {actual_checksum}')
             raise ValueError(f'Checksum mismatch for {key}')
@@ -76,7 +76,7 @@ def is_valid_nhs_number(nhs_number: Union[str, int, None]) -> bool:
     return check_digit == digits[9]
 
 
-def clean_and_validate_nhs_df(df: pd.DataFrame, nhs_col: str = 'nhs') -> pd.DataFrame:
+def clean_and_validate_nhs_df(df: pd.DataFrame, nhs_col: str) -> pd.DataFrame:
     df[nhs_col] = df[nhs_col].astype(str).str.replace(' ', '').str.strip()
     df = df[df[nhs_col] != '']
     validation_result = df[nhs_col].apply(is_valid_nhs_number)
@@ -137,7 +137,7 @@ def lambda_handler(event, context) -> dict:
         intersections = []
         logger.info(f'Found {len(gp_file_keys)} GP files to process.')
 
-        # Process each GP file
+        # Intersection per GP file
         for gp_key in gp_file_keys:
             filename = gp_key.split('/')[-1]
             gp_checksum_key = f"{gp_checksum_prefix}{filename.replace(FILE_EXTENSION, CHECKSUM_EXTENSION)}"

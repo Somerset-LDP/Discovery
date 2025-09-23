@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  paths:
+      - 'lambda_functions/cohort_data_processing/**'
 
 
 jobs:

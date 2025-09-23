@@ -5,6 +5,8 @@ import pandas as pd
 from io import StringIO
 from typing import List, Set, Union
 
+from botocore.exceptions import BotoCoreError, ClientError
+
 from lambda_functions.cohort_data_processing.s3_utils import write_to_s3, delete_s3_objects, list_s3_files, \
     get_s3_object_content
 
@@ -47,26 +49,14 @@ def validate_checksum(content: bytes, checksum_content: bytes, key: str) -> None
         raise ValueError(msg)
 
 
-def write_cohort(gp_bucket: str, cohort_key: str, all_common: Set[str]) -> None:
-    try:
-        write_to_s3(gp_bucket, cohort_key, all_common)
-    except Exception as e:
-        logger.error(f'Error writing cohort file: {e}')
-        raise
-
-
 def delete_and_log_remaining(bucket: str, keys: List[str], prefix: str) -> None:
-    try:
-        delete_s3_objects(bucket, keys)
-        remaining = list_s3_files(bucket, prefix)
-        if remaining:
-            logger.warning(
-                f'Not all files deleted in s3://{bucket}/{prefix}. Remaining: {remaining} (count: {len(remaining)})')
-        else:
-            logger.info(f'All source files deleted in s3://{bucket}/{prefix}')
-    except Exception as e:
-        logger.error(f'Error deleting files: {e}')
-        raise
+    delete_s3_objects(bucket, keys)
+    remaining = list_s3_files(bucket, prefix)
+    if remaining:
+        logger.warning(
+            f'Not all files deleted in s3://{bucket}/{prefix}. Remaining: {remaining} (count: {len(remaining)})')
+    else:
+        logger.info(f'All source files deleted in s3://{bucket}/{prefix}')
 
 
 def is_valid_nhs_number(nhs_number: Union[str, int, None]) -> bool:
@@ -180,7 +170,7 @@ def lambda_handler(event, context) -> dict:
         pseudonymise(all_common)
 
         # Write cohort
-        write_cohort(gp_bucket, cohort_key, all_common)
+        write_to_s3(gp_bucket, cohort_key, all_common)
 
         # Cleanup
         delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))
@@ -188,7 +178,7 @@ def lambda_handler(event, context) -> dict:
         delete_and_log_remaining(gp_bucket, gp_file_keys, gp_files_prefix.split('/', 1)[1])
         delete_and_log_remaining(gp_checksum_bucket, gp_checksum_keys, gp_checksum_prefix)
         return {'final_count': len(all_common), 'cohort_key': cohort_key}
-    except KeyError | ValueError:
+    except KeyError | ValueError | UnicodeDecodeError | BotoCoreError | ClientError:
         raise
     except Exception as e:
         logger.error(f'Unhandled error in lambda_handler: {e}', exc_info=True)

@@ -5,7 +5,6 @@ import os
 from unittest.mock import patch
 from lambda_functions.cohort_data_processing.cohort_data_processing import (
     validate_checksum,
-    write_cohort,
     delete_and_log_remaining,
     is_valid_nhs_number,
     clean_and_validate_nhs_df,
@@ -53,24 +52,6 @@ def test_validate_checksum_decode_error():
     )
 
 
-def test_write_cohort():
-    with patch(
-        "lambda_functions.cohort_data_processing.cohort_data_processing.write_to_s3"
-    ) as mock_write:
-        write_cohort("bucket", "key", {"1", "2"})
-        mock_write.assert_called_once_with("bucket", "key", {"1", "2"})
-
-
-def test_write_cohort_error():
-    with patch(
-        "lambda_functions.cohort_data_processing.cohort_data_processing.write_to_s3"
-    ) as mock_write:
-        mock_write.side_effect = Exception("fail")
-        with pytest.raises(Exception) as excinfo:
-            write_cohort("bucket", "key", {"1"})
-        assert "fail" in str(excinfo.value)
-
-
 def test_delete_and_log_remaining(caplog):
     with patch(
         "lambda_functions.cohort_data_processing.cohort_data_processing.delete_s3_objects"
@@ -99,16 +80,6 @@ def test_delete_and_log_remaining_with_remaining_files(caplog):
         assert any(
             "Not all files deleted" in m for m in caplog.messages
         )
-
-
-def test_delete_and_log_remaining_error():
-    with patch(
-        "lambda_functions.cohort_data_processing.cohort_data_processing.delete_s3_objects"
-    ) as mock_delete:
-        mock_delete.side_effect = Exception("delete error")
-        with pytest.raises(Exception) as excinfo:
-            delete_and_log_remaining("bucket", ["file1.csv"], "prefix")
-        assert "delete error" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(

@@ -24,15 +24,11 @@ jobs:
           role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
           aws-region: eu-west-2
 
-      - name: Extract branch name from commit message
-        id: branch
-        run: |
-          BRANCH_NAME=$(git log -1 --pretty=format:"%s" | grep -oE 'Merge pull request #[0-9]+ from [^/]*/([^ ]+)' | awk '{print $NF}')
-          echo "branch_name=${BRANCH_NAME:-unknown}" >> $GITHUB_OUTPUT
+
       - name: Create ZIP with Python files
         run: |
-          zip lambda_${{ steps.branch.outputs.branch_name }}.zip lambda_functions/cohort_data_processing/*
+          zip lambda_main.zip lambda_functions/cohort_data_processing/*
 
       - name: Upload ZIP to S3
         run: |
-          aws s3 cp lambda_${{ steps.branch.outputs.branch_name }}.zip s3://somerset-647582858282-dev-lambda/cohort-data-processing/lambda_${{ steps.branch.outputs.branch_name }}.zip
+          aws s3 cp lambda_main.zip s3://somerset-647582858282-dev-lambda/cohort-data-processing/lambda_main.zip

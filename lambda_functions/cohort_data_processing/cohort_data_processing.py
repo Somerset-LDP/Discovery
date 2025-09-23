@@ -169,25 +169,26 @@ def lambda_handler(event, context) -> dict:
             logger.info(f"Intersection {filename} count: {len(common)}")
 
         # Union of all intersections
-            all_common_df = pd.concat(intersections)
         all_common = set()
+        if not intersections:
             logger.warning('No intersections found, final union is empty.')
-        logger.info(f'Final union count: {len(all_common_df)}')
         else:
             all_common = set().union(*intersections)
+        logger.info(f'Final union count: {len(all_common)}')
 
         # Pseudonymisation step placeholder
+        pseudonymise(all_common)
 
+        # Write cohort
+        write_cohort(gp_bucket, cohort_key, all_common)
 
+        # Cleanup
         delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))
         delete_and_log_remaining(sft_checksum_bucket, [sft_checksum_key], os.path.dirname(sft_checksum_key))
         delete_and_log_remaining(gp_bucket, gp_file_keys, gp_files_prefix.split('/', 1)[1])
         delete_and_log_remaining(gp_checksum_bucket, gp_checksum_keys, gp_checksum_prefix)
-        return {'final_count': len(all_common_df), 'cohort_key': cohort_key}
-    except KeyError as e:
-        logger.error(f'Missing or invalid environment variable: {e}', exc_info=True)
-        raise
-    except ValueError:
+        return {'final_count': len(all_common), 'cohort_key': cohort_key}
+    except KeyError | ValueError:
         raise
     except Exception as e:
         logger.error(f'Unhandled error in lambda_handler: {e}', exc_info=True)

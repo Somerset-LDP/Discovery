@@ -27,8 +27,10 @@ jobs:
 
       - name: Create ZIP with Python files
         run: |
-          zip lambda_main.zip lambda_functions/cohort_data_processing/*
+          cd lambda_functions/cohort_data_processing
+          zip lambda_main.zip .
 
       - name: Upload ZIP to S3
         run: |
+          cd lambda_functions/cohort_data_processing
           aws s3 cp lambda_main.zip s3://somerset-647582858282-dev-lambda/cohort-data-processing/lambda_main.zip

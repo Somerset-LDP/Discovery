@@ -178,7 +178,7 @@ def lambda_handler(event, context) -> dict:
         delete_and_log_remaining(gp_bucket, gp_file_keys, gp_files_prefix.split('/', 1)[1])
         delete_and_log_remaining(gp_checksum_bucket, gp_checksum_keys, gp_checksum_prefix)
         return {'final_count': len(all_common), 'cohort_key': cohort_key}
-    except KeyError | ValueError | UnicodeDecodeError | BotoCoreError | ClientError:
+    except (LookupError, ValueError, UnicodeError, BotoCoreError, ClientError):
         raise
     except Exception as e:
         logger.error(f'Unhandled error in lambda_handler: {e}', exc_info=True)

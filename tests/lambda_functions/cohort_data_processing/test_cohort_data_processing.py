@@ -1,6 +1,7 @@
 import hashlib
 import pandas as pd
 import pytest
+import os
 from unittest.mock import patch
 from lambda_functions.cohort_data_processing.cohort_data_processing import (
     validate_checksum,
@@ -9,7 +10,17 @@ from lambda_functions.cohort_data_processing.cohort_data_processing import (
     is_valid_nhs_number,
     clean_and_validate_nhs_df,
     load_and_clean_nhs_csv,
+    get_env_variables,
+    REQUIRED_ENV_VARS
 )
+
+
+@pytest.fixture(autouse=True)
+def cleanup_env():
+    original_env = os.environ.copy()
+    yield
+    os.environ.clear()
+    os.environ.update(original_env)
 
 
 def test_validate_checksum():
@@ -153,7 +164,7 @@ def test_clean_and_validate_nhs_df(input_data, expected_nhs):
 def test_load_and_clean_nhs_csv(mock_validate_checksum, mock_get_s3_object_content):
     sft_csv = "943 476 5919\n9434765910\n 8314495581 \nabcdefghij\n943 476 5919\n"
     sft_bytes = sft_csv.encode("utf-8")
-    checksum_bytes = b"fakechecksum"
+    checksum_bytes = b"fakechecksum sft.csv"
     mock_get_s3_object_content.side_effect = [sft_bytes, checksum_bytes]
     df = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
     assert sorted(list(df["nhs"])) == ["8314495581", "9434765919"]
@@ -213,3 +224,23 @@ def test_load_and_clean_nhs_csv_removes_duplicates(mock_validate_checksum, mock_
     df = load_and_clean_nhs_csv("bucket", "key", "cbucket", "ckey", filetype='SFT')
     assert list(df["nhs"]) == ["9434765919"]
     assert len(df) == 1
+
+
+def test_get_env_variables_all_present():
+    for var in REQUIRED_ENV_VARS:
+        os.environ[var] = f"value_for_{var}"
+    result = get_env_variables()
+    for var in REQUIRED_ENV_VARS:
+        assert result[var] == f"value_for_{var}"
+
+
+def test_get_env_variables_missing():
+    for var in REQUIRED_ENV_VARS:
+        os.environ.pop(var, None)
+    if REQUIRED_ENV_VARS:
+        os.environ[REQUIRED_ENV_VARS[0]] = "some_value"
+    with pytest.raises(KeyError) as excinfo:
+        get_env_variables()
+    missing = [v for v in REQUIRED_ENV_VARS if v not in os.environ]
+    for mv in missing:
+        assert mv in str(excinfo.value)

@@ -33,7 +33,7 @@ def write_to_s3(bucket: str, key: str, nhs_set: Set[str]) -> None:
     try:
         csv_buffer = StringIO()
         writer = csv.writer(csv_buffer)
-        for nhs in nhs_set:
+        for nhs in sorted(nhs_set):
             writer.writerow([nhs])
         s3_client.put_object(Bucket=bucket, Key=key, Body=csv_buffer.getvalue().encode('utf-8'))
         logging.info(f'Written final union to s3://{bucket}/{key}')

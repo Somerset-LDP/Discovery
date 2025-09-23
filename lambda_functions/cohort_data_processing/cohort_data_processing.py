@@ -15,6 +15,13 @@ ENCODING = "utf-8"
 NHS_NUMBER_COLUMN = "nhs"
 FILE_EXTENSION = '.csv'
 CHECKSUM_EXTENSION = '.sha256'
+REQUIRED_ENV_VARS = [
+    "S3_SFT_FILE_PREFIX",
+    "S3_SFT_CHECKSUM_PREFIX",
+    "S3_GP_FILES_PREFIX",
+    "S3_GP_CHECKSUMS_PREFIX",
+    "S3_COHORT_KEY",
+]
 
 
 def get_files(file_prefix):
@@ -28,14 +35,16 @@ def get_files(file_prefix):
 
 def validate_checksum(content: bytes, checksum_content: bytes, key: str) -> None:
     try:
-        actual_checksum = hashlib.sha256(content).hexdigest()
-        expected_checksum = checksum_content.decode(ENCODING).strip()
-        if actual_checksum != expected_checksum:
-            logger.error(f'Checksum mismatch for {key}: expected {expected_checksum}, got {actual_checksum}')
-            raise ValueError(f'Checksum mismatch for {key}')
-    except Exception as e:
-        logger.error(f'Error in checksum validation for {key}: {e}')
+        # Allow sha256sum-style files: "<hex>  filename"
+        expected_checksum = checksum_content.decode(ENCODING).strip().split()[0]
+    except UnicodeDecodeError as e:
+        logger.error(f"Checksum decode failed for {key}: {e}")
         raise
+    actual_checksum = hashlib.sha256(content).hexdigest()
+    if actual_checksum != expected_checksum:
+        msg = f"Checksum mismatch for {key}: expected {expected_checksum}, got {actual_checksum}"
+        logger.error(msg)
+        raise ValueError(msg)
 
 
 def write_cohort(gp_bucket: str, cohort_key: str, all_common: Set[str]) -> None:
@@ -104,26 +113,36 @@ def load_and_clean_nhs_csv(
     return df
 
 
-def pseudonymise(all_common_df: pd.DataFrame) -> None:
+def pseudonymise(all_common_df: set) -> None:
     logger.info("Pseudonymisation step placeholder.")
+
+
+def get_env_variables():
+    env_vars = {var: os.getenv(var) for var in REQUIRED_ENV_VARS}
+    missing = [var for var, val in env_vars.items() if not val]
+    if missing:
+        logger.error(f"Missing required environment variables: {', '.join(missing)}")
+        raise KeyError(f"Missing required environment variables: {', '.join(missing)}")
+    return env_vars
 
 
 def lambda_handler(event, context) -> dict:
     try:
         # ENV variables
-        sft_file_prefix = os.getenv("S3_SFT_FILE_PREFIX")
-        sft_checksum_prefix = os.getenv('S3_SFT_CHECKSUM_PREFIX')
-        gp_files_prefix = os.getenv('S3_GP_FILES_PREFIX')
-        gp_checksums_prefix = os.getenv('S3_GP_CHECKSUMS_PREFIX')
-        cohort_key = os.getenv('S3_COHORT_KEY')
+        env_vars = get_env_variables()
+        sft_file_prefix = env_vars["S3_SFT_FILE_PREFIX"]
+        sft_checksum_prefix = env_vars["S3_SFT_CHECKSUM_PREFIX"]
+        gp_files_prefix = env_vars["S3_GP_FILES_PREFIX"]
+        gp_checksums_prefix = env_vars["S3_GP_CHECKSUMS_PREFIX"]
+        cohort_key = env_vars["S3_COHORT_KEY"]
 
         # SFT
         sft_bucket, sft_keys = get_files(sft_file_prefix)
         sft_checksum_bucket, sft_checksum_keys = get_files(sft_checksum_prefix)
         sft_file_key = sft_keys[0]
         sft_checksum_key = sft_checksum_keys[0]
-        sft_df = load_and_clean_nhs_csv(sft_bucket, sft_file_key, sft_checksum_bucket, sft_checksum_key,
-                                           filetype='SFT')
+        sft_df = load_and_clean_nhs_csv(sft_bucket, sft_file_key, sft_checksum_bucket, sft_checksum_key, filetype='SFT')
+        sft_set = set(sft_df[NHS_NUMBER_COLUMN])
 
         # GP's
         gp_bucket, gp_file_keys = get_files(gp_files_prefix)
@@ -134,33 +153,31 @@ def lambda_handler(event, context) -> dict:
             raise ValueError('Mismatch between number of GP files and checksum files.')
 
         gp_checksum_prefix = gp_checksums_prefix.split('/', 1)[1]
-        intersections = []
         logger.info(f'Found {len(gp_file_keys)} GP files to process.')
 
         # Intersection per GP file
+        intersections = []
         for gp_key in gp_file_keys:
-            filename = gp_key.split('/')[-1]
+            filename = gp_key.split("/")[-1]
             gp_checksum_key = f"{gp_checksum_prefix}{filename.replace(FILE_EXTENSION, CHECKSUM_EXTENSION)}"
-            gp_df = load_and_clean_nhs_csv(gp_bucket, gp_key, gp_checksum_bucket, gp_checksum_key, filetype='GP')
-            intersection = pd.merge(sft_df, gp_df, on=NHS_NUMBER_COLUMN, how='inner')
-            intersections.append(intersection)
-            logger.info(f'Intersection {filename} count: {len(intersection)}')
+            gp_df = load_and_clean_nhs_csv(gp_bucket, gp_key, gp_checksum_bucket, gp_checksum_key, filetype="GP")
+
+            gp_set = set(gp_df[NHS_NUMBER_COLUMN])
+            common = sft_set & gp_set
+
+            intersections.append(common)
+            logger.info(f"Intersection {filename} count: {len(common)}")
 
         # Union of all intersections
-        if intersections:
             all_common_df = pd.concat(intersections)
-            logger.info(f'Union unique count before dedup: {len(all_common_df[NHS_NUMBER_COLUMN])}')
-            all_common_df = all_common_df.drop_duplicates()
-        else:
-            all_common_df = pd.DataFrame(columns=[NHS_NUMBER_COLUMN])
+        all_common = set()
             logger.warning('No intersections found, final union is empty.')
         logger.info(f'Final union count: {len(all_common_df)}')
+        else:
+            all_common = set().union(*intersections)
 
         # Pseudonymisation step placeholder
-        pseudonymise(all_common_df)
 
-        # Write cohort and cleanup
-        write_cohort(gp_bucket, cohort_key, set(all_common_df[NHS_NUMBER_COLUMN]))
 
         delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))
         delete_and_log_remaining(sft_checksum_bucket, [sft_checksum_key], os.path.dirname(sft_checksum_key))

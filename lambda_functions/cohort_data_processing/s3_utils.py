@@ -10,11 +10,15 @@ s3_client = boto3.client('s3')
 
 def list_s3_files(bucket: str, prefix: str) -> List[str]:
     try:
-        response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        keys = [obj["Key"] for obj in response.get("Contents", [])]
-        # Remove the prefix itself (folder) and any folders
-        filtered = [k for k in keys if k != prefix and not k.endswith('/')]
-        return filtered
+        paginator = s3_client.get_paginator("list_objects_v2")
+        page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
+        keys = []
+        for page in page_iterator:
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key != prefix and not key.endswith("/"):
+                    keys.append(key)
+        return keys
     except Exception as e:
         logging.error(f"Failed to list files in s3://{bucket}/{prefix}: {e}")
         raise

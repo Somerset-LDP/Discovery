@@ -4,33 +4,37 @@ from lambda_functions.cohort_data_processing import s3_utils
 
 
 def test_list_s3_files():
-    mock_response = {
+    mock_page = {
         'Contents': [
             {'Key': 'my-prefix/file1.csv'},
             {'Key': 'my-prefix/file2.csv'},
             {'Key': 'my-prefix/'},
         ]
     }
+    mock_paginator = MagicMock()
+    mock_paginator.paginate.return_value = [mock_page]
     with patch.object(s3_utils, 's3_client') as mock_client:
-        mock_client.list_objects_v2.return_value = mock_response
+        mock_client.get_paginator.return_value = mock_paginator
         result = s3_utils.list_s3_files('my-bucket', 'my-prefix/')
         assert result == ['my-prefix/file1.csv', 'my-prefix/file2.csv']
 
 
 def test_list_s3_files_empty():
-    mock_response = {'Contents': []}
+    mock_page = {'Contents': []}
+    mock_paginator = MagicMock()
+    mock_paginator.paginate.return_value = [mock_page]
     with patch.object(s3_utils, 's3_client') as mock_client:
-        mock_client.list_objects_v2.return_value = mock_response
+        mock_client.get_paginator.return_value = mock_paginator
         result = s3_utils.list_s3_files('my-bucket', 'my-prefix/')
         assert result == []
 
 
 def test_list_s3_files_error():
     with patch.object(s3_utils, 's3_client') as mock_client:
-        mock_client.list_objects_v2.side_effect = Exception('S3 error')
+        mock_client.get_paginator.side_effect = Exception("S3 error")
         with pytest.raises(Exception) as excinfo:
             s3_utils.list_s3_files('my-bucket', 'my-prefix/')
-        assert 'S3 error' in str(excinfo.value)
+        assert "S3 error" in str(excinfo.value)
 
 
 def test_get_s3_object_content():

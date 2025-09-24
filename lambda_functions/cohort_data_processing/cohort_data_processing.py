@@ -125,7 +125,7 @@ def lambda_handler(event, context) -> dict:
         sft_checksum_prefix = env_vars["S3_SFT_CHECKSUM_PREFIX"]
         gp_files_prefix = env_vars["S3_GP_FILES_PREFIX"]
         gp_checksums_prefix = env_vars["S3_GP_CHECKSUMS_PREFIX"]
-        cohort_key = env_vars["S3_COHORT_KEY"]
+        cohort_path = env_vars["S3_COHORT_KEY"]
         kms_key_id = env_vars["KMS_KEY_ID"]
 
         # SFT
@@ -172,7 +172,8 @@ def lambda_handler(event, context) -> dict:
         pseudonymise(all_common)
 
         # Write cohort
-        write_to_s3(gp_bucket, cohort_key, all_common, kms_key_id)
+        cohort_bucket, cohort_key = cohort_path.split('/', 1)
+        write_to_s3(cohort_bucket, cohort_key, all_common, kms_key_id)
 
         # Cleanup
         delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))

@@ -59,11 +59,13 @@ def test_write_to_s3():
     nhs_set = {'123', '456'}
     with patch.object(s3_utils, 's3_client') as mock_client:
         mock_put = mock_client.put_object
-        s3_utils.write_to_s3('my-bucket', 'my-key', nhs_set)
+        s3_utils.write_to_s3('my-bucket', 'my-key', nhs_set, 'my-kms-key')
         assert mock_put.call_count == 1
         args, kwargs = mock_put.call_args
         assert kwargs['Bucket'] == 'my-bucket'
         assert kwargs['Key'] == 'my-key'
+        assert kwargs['ServerSideEncryption'] == 'aws:kms'
+        assert kwargs['SSEKMSKeyId'] == 'my-kms-key'
         body = kwargs['Body'].decode('utf-8')
         for nhs in nhs_set:
             assert nhs in body
@@ -74,7 +76,7 @@ def test_write_to_s3_error():
     with patch.object(s3_utils, 's3_client') as mock_client:
         mock_client.put_object.side_effect = Exception('S3 put error')
         with pytest.raises(Exception) as excinfo:
-            s3_utils.write_to_s3('my-bucket', 'my-key', nhs_set)
+            s3_utils.write_to_s3('my-bucket', 'my-key', nhs_set, 'my-kms-key')
         assert 'S3 put error' in str(excinfo.value)
 
 

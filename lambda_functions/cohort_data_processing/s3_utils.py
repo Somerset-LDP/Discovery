@@ -1,12 +1,13 @@
-import logging
 import csv
+import logging
 from io import StringIO
-import boto3
 from typing import List, Set
 
+import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 s3_client = boto3.client('s3')
+SSE = "aws:kms"
 
 
 def list_s3_files(bucket: str, prefix: str) -> List[str]:
@@ -34,13 +35,19 @@ def get_s3_object_content(bucket: str, key: str) -> bytes:
         raise
 
 
-def write_to_s3(bucket: str, key: str, nhs_set: Set[str]) -> None:
+def write_to_s3(bucket: str, key: str, nhs_set: Set[str], kms_key_id: str) -> None:
     try:
         csv_buffer = StringIO()
         writer = csv.writer(csv_buffer)
         for nhs in sorted(nhs_set):
             writer.writerow([nhs])
-        s3_client.put_object(Bucket=bucket, Key=key, Body=csv_buffer.getvalue().encode('utf-8'))
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=csv_buffer.getvalue().encode('utf-8'),
+            ServerSideEncryption=SSE,
+            SSEKMSKeyId=kms_key_id
+        )
         logging.info(f'Written final union to s3://{bucket}/{key}')
     except (BotoCoreError, ClientError) as e:
         logging.error(f'Failed to write to s3://{bucket}/{key}: {e}')

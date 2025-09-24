@@ -1,6 +1,7 @@
-psycopg2-binary==2.9.10
 python-dotenv==1.1.1
+sqlalchemy==2.0.43
 pandas==2.3.2
 streamlit==1.49.1
+fhirclient==4.3.2
 pytest==8.4.2
 testcontainers==4.13.0

@@ -1,132 +1,167 @@
 import os
-import csv
+from pathlib import Path
+import pandas as pd
 import json
+from jsonschema import validate, ValidationError
+from sqlalchemy import create_engine
 import logging
-from datetime import datetime
-from dotenv import load_dotenv
-import psycopg2
-from db import get_connection, store_refined
+from fhir import DiagnosticsService, TerminologyService
 
-# =========================
-# Configure logging
-# =========================
-logging.basicConfig(filename='logs/ingestion_errors.log',
-                    level=logging.INFO,
-                    format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(
+    filename='logs/ingestion_errors.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
 
-# =========================
-# Valid units
-# =========================
-VALID_HEIGHT_UNITS = {'cm'}
-VALID_WEIGHT_UNITS = {'kg'}
+def read_raw_input(raw_input, schema_path="schema-inbound.json"):
+    patients = []
 
-# =========================
-# Section 1: Ingestion & Raw Store
-# =========================
-def store_raw(records, raw_store_file='data/raw_stored.json'):
-    # Store raw data to file (lineage)
-    with open(raw_store_file, 'w') as f:
-        for record in records:
-            f.write(json.dumps(record) + '\n')
+    schema_path = Path(schema_path)
+    if not schema_path.exists():
+        raise FileNotFoundError(f"Schema file not found: {schema_path}")
+        
+    with open(schema_path) as f:
+        schema = json.load(f)    
 
-    return records
+    for idx, patient in enumerate(raw_input):
+        try:
+            validate(instance=patient, schema=schema)
+            patients.append(patient)
+        except ValidationError as e:
+            logging.error(f"Validation error for record {idx}: {e}")  
 
-# =========================
-# Section 2: Read Raw & Validate
-# =========================
-def validate_record(record):
+    return patients
+
+def transform_to_refined_patients(patients):
+    # Read SNOMED codes for height and weight from environment variables
+    SNOMED_BODY_HEIGHT = os.getenv("SNOMED_BODY_HEIGHT")
+    SNOMED_BODY_WEIGHT = os.getenv("SNOMED_BODY_WEIGHT")
+
+    if not SNOMED_BODY_HEIGHT or not SNOMED_BODY_WEIGHT:
+        raise EnvironmentError("Environment variables SNOMED_BODY_HEIGHT and SNOMED_BODY_WEIGHT must be set.")    
+
+    output_rows = []
+    for patient in patients:
+        height_cm = None
+        weight_kg = None
+        dob = patient.get("dob")
+        patient_id = patient.get("patient_id")
+
+        for obs in patient.get("observations", []):
+            if obs.get("type_code_system") == "http://snomed.info/sct":
+                if obs.get("type") == SNOMED_BODY_HEIGHT:
+                    height_cm = obs.get("value")
+                elif obs.get("type") == SNOMED_BODY_WEIGHT:
+                    weight_kg = obs.get("value")
+
+        bmi = None
+        if height_cm and weight_kg:
+            bmi = weight_kg / ((height_cm / 100) ** 2)
+
+        output_rows.append({
+            "patient_id": patient_id,
+            "dob": pd.to_datetime(dob).date() if dob else None,
+            "height_cm": height_cm,
+            "weight_kg": weight_kg,
+            "bmi": bmi
+        })
+
+    return pd.DataFrame(output_rows)
+
+def write_raw_patients(raw_patients, path="datalake/raw_patients.parquet"):
+    # Flatten each patient dict to a row for storage
+    df = pd.json_normalize(raw_patients)
+    df.to_parquet(path, index=False)
+    # Alternatively, for JSON:
+    # df.to_json("datalake/raw_patients.json", orient="records", lines=True)
+
+def load_raw_patients_from_datalake(path="datalake/raw_patients.parquet"):
+    df = pd.read_parquet(path)
+    return df.to_dict(orient="records") 
+
+def map_to_snomed(type_code, type_code_system):
     """
-    Validate a single record. Returns (is_valid: bool, errors: list)
+    Use ConceptMap to map input code/system to SNOMED-CT code.
+    Ensures the resulting code system is SNOMED-CT.
     """
-    errors = []
-
-    if not record.get('height') or not record.get('height_unit'):
-        errors.append("Missing height/unit")
-    if not record.get('weight') or not record.get('weight_unit'):
-        errors.append("Missing weight/unit")
-    if record.get('height_unit') and record.get('height_unit') not in VALID_HEIGHT_UNITS:
-        errors.append(f"Unknown height unit: {record.get('height_unit')}")
-    if record.get('weight_unit') and record.get('weight_unit') not in VALID_WEIGHT_UNITS:
-        errors.append(f"Unknown weight unit: {record.get('weight_unit')}")
-    if not record.get('observation_time'):
-        errors.append("Missing observation_time")
-
-    is_valid = len(errors) == 0
-    return is_valid, errors
-
-def validate_records(records):
-    valid = []
-    rejected = []
-
-    for record in records:
-        is_valid, errors = validate_record(record)
-        if is_valid:
-            valid.append(record)
-        else:
-            record['errors'] = errors
-            rejected.append(record)
-
-    # Log rejected
-    for record in rejected:
-        logging.info(record)
-
-    return valid
-
-
-# =========================
-# Section 3: Transform Raw into Refined
-# =========================
-def convert_height(value, unit):
-    if unit == 'cm':
-        return float(value)
-    return None
-
-def convert_weight(value, unit):
-    if unit == 'kg':
-        return float(value)
-    return None
-
-def calculate_bmi(height_cm, weight_kg):
-    if height_cm and weight_kg:
-        return round(weight_kg / (height_cm/100)**2, 2)
-    return None
-
-def transform_records(records):
-    for r in records:
-        r['height_cm'] = convert_height(r['height'], r['height_unit'])
-        r['weight_kg'] = convert_weight(r['weight'], r['weight_unit'])
-        r['bmi'] = calculate_bmi(r['height_cm'], r['weight_kg'])
-    return records
-
-# pipeline.py
-
-def run_pipeline(records):
+    snomed_coding = TerminologyService.translate(code=type_code, system=type_code_system)
+    if snomed_coding and snomed_coding.system == "http://snomed.info/sct":
+        return snomed_coding
+    else:
+        logging.warning(f"ConceptMap translation did not return SNOMED-CT code for {type_code} ({type_code_system}).")
+        return None  
+    
+def convert_value_to_standard_unit(value, input_unit, standard_unit):
     """
-    Run the full pipeline given a list of deserialized records.
-    If conn is provided, use it for storing refined data.
+    Convert value from input_unit to standard_unit.
+    For demo, assume units are compatible and conversion is 1:1.
+    Extend with actual conversion logic as needed.
     """
-    records = store_raw(records)
+    # TODO: Implement real unit conversion logic
+    return value    
 
-    # Section 2: Validate
-    valid_records = validate_records(records)
+def standardise_observation(obs):
+    snomed_code = map_to_snomed(obs["type"], obs["type_code_system"])
+    if not snomed_code: 
+        logging.warning(f"Could not map observation type '{obs['type']}' ({obs['type_code_system']}) to SNOMED-CT.")
+        return None
 
-    # Section 3: Transform
-    transformed_records = transform_records(valid_records)
+    if not snomed_code.code:
+        logging.warning(f"Mapped SNOMED-CT coding has no 'code' property: {snomed_code}")
+        return None
+    
+    obs_def = DiagnosticsService.get_observation_definition(snomed_code.code)
+    if not obs_def or not obs_def.quantitativeDetails or not obs_def.quantitativeDetails.permittedUnits:
+        logging.warning(f"No valid ObservationDefinition or permitted units found for SNOMED-CT code '{snomed_code}'.")
+        return None
 
-    # Section 4: Store refined
-    store_refined(transformed_records)
+    standard_unit = obs_def.quantitativeDetails.permittedUnits[0].code
+    standard_value = convert_value_to_standard_unit(obs["value"], obs["unit"], standard_unit)
 
-    return transformed_records
+    # Create a new standardised observation dict
+    standardised_obs = {
+        "type": snomed_code.code,  # original type
+        "type_code_system": snomed_code.system,  # should be SNOMED-CT
+        "value": standard_value,
+        "unit": standard_unit,
+        "observation_time": obs["observation_time"]
+    }
 
+    return standardised_obs
 
-# =========================
-# Main Orchestration
-# =========================
-if __name__ == "__main__":
-    file_path = 'data/patient_mock.csv'
+def standardise_patient_observations(raw_patients):
+    enriched_patients = []
+    for patient in raw_patients:
+        # Copy patient to avoid mutating input
+        patient_copy = dict(patient)
+        patient_copy["observations"] = list(patient.get("observations", []))  # ensure it's a list
+        for obs in patient.get("observations", []):
+            standardised_obs = standardise_observation(obs)
+            if standardised_obs:
+                patient_copy["observations"].append(standardised_obs)
+        enriched_patients.append(patient_copy)
+    return enriched_patients
 
-    with open(file_path, newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        records = [row for row in reader]    
+def write_refined_patients(output_df):
+    """
+    Store the output DataFrame to a relational database table.
+    """
+    db_url = os.getenv("DATABASE_URL")
 
-    run_pipeline(records)
+    if db_url is None:
+      raise EnvironmentError("Environment variable DATABASE_URL must be set.")   
+    table_name = "patient"  
+    engine = create_engine(db_url)
+    output_df.to_sql(table_name, engine, if_exists="append", index=False)
+
+def run(input_json):
+    """
+    Runs the pipeline
+    """    
+    raw_patients = read_raw_input(input_json)
+    write_raw_patients(raw_patients) 
+
+    enriched_patients = standardise_patient_observations(raw_patients)
+
+    output_df = transform_to_refined_patients(enriched_patients)
+    write_refined_patients(output_df)

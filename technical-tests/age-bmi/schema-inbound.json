@@ -1,0 +1,22 @@
+{
+    "type": "object",
+    "properties": {
+        "patient_id": {"type": "integer"},
+        "dob": {"type": "string", "format": "date"},
+        "observations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string"},
+                    "type_code_system": {"type": "string"},
+                    "value": {"type": "number"},
+                    "unit": {"type": "string"},
+                    "observation_time": {"type": "string", "format": "date-time"}
+                },
+                "required": ["type", "type_code_system", "value", "unit", "observation_time"]
+            }
+        }
+    },
+    "required": ["patient_id", "dob"]
+}

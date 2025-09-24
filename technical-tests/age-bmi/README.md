@@ -32,8 +32,17 @@ Keep minimal lineage keys in the refined table (e.g., raw_record_id),
 
 Store detailed provenance in a lineage table or catalog.
 
-## Connect to terminology server
-## Connect Barbara's cohort filter
+## Connect to FHIR terminology server to validate code systems and to perform mappings
+## Connect to a filter which acts as a whitelist, only allowing records to pass through that meet the filter criteria
+## Incorporate lineage. I'd like to be able to explore different options
+## Incorporate Data dictionary to allow people to understand the data model. I'd like to be able to explore different options
+## I'd like to explore different storage options including Lakehouse. I am not sure yet of the best way to store the data (raw, refined, reporting)
+## I'd also like to explore scaling, redundancy and failover
+## Add a Self serve interface with something like Trino so that people with SQL skills can explore the data (this is related to the Data dictionary feature)
+## Add an Audit trail for who is doing what and when
+## Add monitoring and alerting
+## Add a Pseudonymisation step
+## Merging records
 
 ## Tests
 If you like, I can also add a test for aggregating patients into age ranges directly from mock records, so you can verify your age-bracket logic without querying the DB.

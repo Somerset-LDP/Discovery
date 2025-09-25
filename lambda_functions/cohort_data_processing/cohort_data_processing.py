@@ -15,18 +15,19 @@ logger.setLevel(logging.INFO)
 
 ENCODING = "utf-8"
 NHS_NUMBER_COLUMN = "nhs"
-FILE_EXTENSION = '.csv'
-CHECKSUM_EXTENSION = '.sha256'
+FILE_EXTENSION = ".csv"
+CHECKSUM_EXTENSION = ".sha256"
 REQUIRED_ENV_VARS = [
     "S3_SFT_FILE_PREFIX",
     "S3_SFT_CHECKSUM_PREFIX",
     "S3_GP_FILES_PREFIX",
     "S3_GP_CHECKSUMS_PREFIX",
     "S3_COHORT_KEY",
+    "KMS_KEY_ID"
 ]
 
 
-def get_files(file_prefix):
+def get_files(file_prefix: str) -> (str, List[str]):
     bucket, prefix = file_prefix.split('/', 1)
     files = list_s3_files(bucket, prefix)
     if not files:
@@ -124,7 +125,8 @@ def lambda_handler(event, context) -> dict:
         sft_checksum_prefix = env_vars["S3_SFT_CHECKSUM_PREFIX"]
         gp_files_prefix = env_vars["S3_GP_FILES_PREFIX"]
         gp_checksums_prefix = env_vars["S3_GP_CHECKSUMS_PREFIX"]
-        cohort_key = env_vars["S3_COHORT_KEY"]
+        cohort_path = env_vars["S3_COHORT_KEY"]
+        kms_key_id = env_vars["KMS_KEY_ID"]
 
         # SFT
         sft_bucket, sft_keys = get_files(sft_file_prefix)
@@ -170,7 +172,8 @@ def lambda_handler(event, context) -> dict:
         pseudonymise(all_common)
 
         # Write cohort
-        write_to_s3(gp_bucket, cohort_key, all_common)
+        cohort_bucket, cohort_key = cohort_path.split('/', 1)
+        write_to_s3(cohort_bucket, cohort_key, all_common, kms_key_id)
 
         # Cleanup
         delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))

@@ -1,0 +1,13 @@
+{
+  "resourceType": "ValueSet",
+  "id": "ons_data_dictionary_ethnicity_2021",
+  "url": "https://nhssomerset.nhs.uk/ldp/valueset/ons_data_dictionary_ethnicity_2021",
+  "status": "active",
+  "compose": {
+    "include": [
+      {
+        "system": "https://nhssomerset.nhs.uk/ldp/codesystem/ons_data_dictionary"
+      }
+    ]
+  }
+}

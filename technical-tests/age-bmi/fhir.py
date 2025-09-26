@@ -30,14 +30,21 @@ class DiagnosticsService:
     _cache: ClassVar[Dict[str, ObservationDefinition]] = {}
 
     @classmethod
-    def get_observation_definition(cls, code: str) -> Optional[ObservationDefinition]:
+    def get_observation_definition(cls, code: str, client: Optional[client.FHIRClient] = None) -> Optional[ObservationDefinition]:
         """Retrieve ObservationDefinition by code, fetching from server if not cached."""
+        if not code:
+            raise TypeError("code must not be None or empty")        
+        
         if code in cls._cache:
             return cls._cache[code]
 
+        # Use injected client or default
+        client = client or _get_fhir_client()
+        server = client.server
+
         # Fetch the ObservationDefinition for this code
         search = ObservationDefinition.where(struct={'code': code})
-        results = search.perform_resources(_get_fhir_client().server)
+        results = search.perform_resources(server)
 
         if results:
             # Cast/instantiate resource as ObservationDefinition
@@ -56,15 +63,20 @@ class DiagnosticsService:
 class TerminologyService:
 
     @classmethod
-    def translate(cls, code: str, system: str) -> Optional[Coding]:
+    def translate(cls, code: str, system: str, client: Optional[client.FHIRClient] = None) -> Optional[Coding]:
         """
         Calls ConceptMap/$translate.
         Returns the first translated Coding if found, otherwise None.
         """
+        if not code or not system:
+            raise TypeError("both code and system must not be None or empty")    
+        
         translation: Optional[Coding] = None
 
-        client = _get_fhir_client()
+        # Use injected client or default
+        client = client or _get_fhir_client()
         server = client.server
+
         if server:
             url = f"{server.base_uri}/ConceptMap/$translate?code={code}&system={system}"
 
@@ -89,14 +101,31 @@ class TerminologyService:
     
     @classmethod
     def _to_coding(cls, data) -> Optional[Coding]:
+        if not data:
+            raise TypeError("data must not be None or empty")     
+        
+        coding: Optional[Coding] = None
+        
         if isinstance(data, Coding):
-            return data
-        try:
-            return Coding(data.as_json())
-        except Exception:
-            return Coding({
-                "system": data.get("system"),
-                "code": data.get("code"),
-                "display": data.get("display"),
-            })
+            coding = data
+        else:
+            try:
+                coding = Coding(data.as_json())
+            except Exception:
+                if isinstance(data, dict):
+                    coding = Coding({
+                        "system": data.get("system"),
+                        "code": data.get("code"),
+                        "display": data.get("display"),
+                    })
+                else:
+                    logging.error(f"Invalid data type for Coding conversion: {type(data)}")
+                    coding = None
+                    
+        if coding:
+            if not coding.system or not coding.code:
+                logging.error(f"Invalid Coding: missing 'system' or 'code' in {coding.as_json()}")
+                coding = None
+
+        return coding                
 

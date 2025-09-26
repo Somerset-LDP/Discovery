@@ -44,6 +44,8 @@ Store detailed provenance in a lineage table or catalog.
 ## Add a Pseudonymisation step
 ## Merging records
 
+## Timeout, network error, retry logic
+
 ## Tests
 If you like, I can also add a test for aggregating patients into age ranges directly from mock records, so you can verify your age-bracket logic without querying the DB.
 

@@ -1,16 +1,27 @@
 services:
-  postgres:
-    image: postgres:15
-    container_name: refined-store
+  db:
+    image: postgres:17
+    container_name: data-store
+    restart: always    
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
     ports:
       - "5432:5432"
     volumes:
-      - ./db/init:/docker-entrypoint-initdb.d
-      - pgdata:/var/lib/postgresql/data
+      - ./data/init:/docker-entrypoint-initdb.d
+      - pgdata:/var/lib/postgresql/data     
+
+  fhir:
+    image: "hapiproject/hapi:latest"
+    container_name: fhir-server
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./hapi.application.yaml:/app/config/application.yaml
+    depends_on:
+      - db
 
 volumes:
   pgdata:

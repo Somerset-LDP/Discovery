@@ -1,0 +1,160 @@
+{
+  "resourceType": "ConceptMap",
+  "id": "ons_2021_ethnicity_to_nhs_2001a_ethnicity",
+  "url": "https://nhssomerset.nhs.uk/ldp/conceptmap/ons_2021_ethnicity_to_nhs_2001a_ethnicity",
+  "version": "1.0.0",
+  "name": "ONS 2021 to NHS 2001a Ethnicity",
+  "title": "ONS 2021 to NHS 2001a Ethnicity",
+  "status": "active",
+  "description": "Maps ONS 2021 Census ethnicity concepts (revised CodeSystem) to NHS Ethnic Category Code (2001a).",
+  "source": "https://nhssomerset.nhs.uk/ldp/valueset/ons_data_dictionary_ethnicity_2021",
+  "target": "https://nhssomerset.nhs.uk/ldp/valueset/nhs_data_dictionary_ethnicity_2001a",
+  "group": [
+    {
+      "source": "https://nhssomerset.nhs.uk/ldp/codesystem/ons_data_dictionary",      
+      "target": "https://nhssomerset.nhs.uk/ldp/codesystem/nhs_data_dictionary",
+      "element": [
+        {
+          "code": "20b_13",
+          "display": "White: English, Welsh, Scottish, Northern Irish or British",
+          "target": [
+            { "code": "A", "display": "White – British", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_14",
+          "display": "White: Irish",
+          "target": [
+            { "code": "B", "display": "White – Irish", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_15",
+          "display": "White: Gypsy or Irish Traveller",
+          "target": [
+            { "code": "C", "display": "White – Any other White background", "equivalence": "narrower" }
+          ]
+        },
+        {
+          "code": "20b_16",
+          "display": "White: Roma",
+          "target": [
+            { "code": "C", "display": "White – Any other White background", "equivalence": "narrower" }
+          ]
+        },
+        {
+          "code": "20b_17",
+          "display": "White: Other White",
+          "target": [
+            { "code": "C", "display": "White – Any other White background", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_11",
+          "display": "White and Black Caribbean",
+          "target": [
+            { "code": "D", "display": "Mixed – White and Black Caribbean", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_10",
+          "display": "White and Black African",
+          "target": [
+            { "code": "E", "display": "Mixed – White and Black African", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_9",
+          "display": "White and Asian",
+          "target": [
+            { "code": "F", "display": "Mixed – White and Asian", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_12",
+          "display": "Other Mixed or Multiple ethnic groups",
+          "target": [
+            { "code": "G", "display": "Mixed – Any other mixed background", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_3",
+          "display": "Indian",
+          "target": [
+            { "code": "H", "display": "Asian or Asian British - Indian", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_4",
+          "display": "Pakistani",
+          "target": [
+            { "code": "J", "display": "Asian or Asian British - Pakistani", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_1",
+          "display": "Bangladeshi",
+          "target": [
+            { "code": "K", "display": "Asian or Asian British - Bangladeshi", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_5",
+          "display": "Other Asian",
+          "target": [
+            { "code": "L", "display": "Asian or Asian British - Any other Asian background", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_2",
+          "display": "Chinese",
+          "target": [
+            { "code": "R", "display": "Other Ethnic Groups - Chinese", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_7",
+          "display": "Caribbean",
+          "target": [
+            { "code": "M", "display": "Black or Black British - Caribbean", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_6",
+          "display": "African",
+          "target": [
+            { "code": "N", "display": "Black or Black British - African", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_8",
+          "display": "Other Black",
+          "target": [
+            { "code": "P", "display": "Black or Black British - Any other Black background", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_18",
+          "display": "Arab",
+          "target": [
+            { "code": "S", "display": "Other Ethnic Groups - Any other ethnic group", "equivalence": "narrower" }
+          ]
+        },
+        {
+          "code": "20b_19",
+          "display": "Any other ethnic group",
+          "target": [
+            { "code": "S", "display": "Other Ethnic Groups - Any other ethnic group", "equivalence": "equivalent" }
+          ]
+        },
+        {
+          "code": "20b_-8",
+          "display": "Does not apply",
+          "target": [
+            { "code": "Z", "display": "Not stated", "equivalence": "inexact" }
+          ]
+        }
+      ]
+    }
+  ]
+}

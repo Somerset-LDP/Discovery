@@ -19,7 +19,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./hapi.application.yaml:/app/config/application.yaml
+      - ./fhir/hapi.application.yaml:/app/config/application.yaml
     depends_on:
       - db
 

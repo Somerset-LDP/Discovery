@@ -11,53 +11,18 @@ from datetime import datetime, time
 import logging
 
 logging.basicConfig(
-    filename='logs/ingestion_errors.log',
+    filename='logs/terminology_service.log',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s'
 )
 
-def _get_fhir_client(api_base: str = "", app_id: str = "observation_definition_cache") -> client.FHIRClient:
+def _get_fhir_client(api_base: str = "", app_id: str = "terminology-service") -> client.FHIRClient:
     settings = {
         "app_id": app_id,
         "api_base": api_base,
     }
     return client.FHIRClient(settings=settings)
 
-# Diagnostics module - https://build.fhir.org/diagnostics-module.html
-
-class DiagnosticsService:
-    """Singleton cache for ObservationDefinitions fetched from FHIR server by code."""
-    _cache: ClassVar[Dict[str, ObservationDefinition]] = {}
-
-    @classmethod
-    def get_observation_definition(cls, code: str, client: Optional[client.FHIRClient] = None) -> Optional[ObservationDefinition]:
-        """Retrieve ObservationDefinition by code, fetching from server if not cached."""
-        if not code:
-            raise TypeError("code must not be None or empty")        
-        
-        if code in cls._cache:
-            return cls._cache[code]
-
-        # Use injected client or default
-        client = client or _get_fhir_client()
-        server = client.server
-
-        # Fetch the ObservationDefinition for this code
-        search = ObservationDefinition.where(struct={'code': code})
-        results = search.perform_resources(server)
-
-        if results:
-            # Cast/instantiate resource as ObservationDefinition
-            try:
-                od = ObservationDefinition(results[0].as_json())
-                cls._cache[code] = od
-                return od
-            except FHIRValidationError:
-                # If the resource cannot be cast, skip caching
-                return None
-
-        return None
-    
 # Terminology module - https://build.fhir.org/terminology-module.html
 
 class TerminologyService:

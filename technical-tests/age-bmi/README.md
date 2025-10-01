@@ -2,6 +2,157 @@
 
 This document outlines the principles, design choices, and migration approach for our data pipeline. It is intended for data engineers contributing to or extending this project.
 
+# Layered Data Architecture
+
+Our architecture is designed around **progressive refinement of data** with each layer having a **single, clear purpose**.  
+This avoids muddling responsibilities and ensures transformations are both explainable and auditable.  
+
+---
+
+## 1. Pseudonymised Layer
+- **Purpose**: A safe, minimal representation of the raw input feeds.  
+- **Characteristics**:
+  - **Immediate pseudonymisation**: PII is stripped or replaced at ingestion.  
+  - **No interpretation**: We do not resolve conflicts or apply business rules.  
+  - **No canonicalisation**: Data remains in feed-specific structures.  
+  - **Lightweight enrichment only when unavoidable**: e.g., computing age at ingestion when the input feed only provides DOB.  
+  - **Two types of outputs**:
+    - *Raw-like pseudonymised*: structurally close to the source.  
+    - *Calculated pseudonymised*: derived values from raw PII (e.g., age), computed before PII is discarded.  
+
+👉 Think of this layer as **“dumb but safe.”**  
+
+---
+
+## 2. Refined Layer
+- **Purpose**: The source of truth for **clean, consistent, canonical data models**.  
+- **Characteristics**:
+  - **Conflict resolution**: e.g., when multiple feeds provide height, weight, or demographic info, this is where we decide the current “truth.”  
+  - **Canonical models**: patient, encounter, observation, etc., structured to reflect business semantics rather than feed idiosyncrasies.  
+  - **Consistency rules**: enforce data quality, type alignment, reference integrity.  
+  - **Feed agnostic**: once in refined, the data is no longer tied to the quirks of a source system.  
+
+👉 This is the **business-ready foundation** for analytics and downstream processing.  
+
+---
+
+## 3. Derived Layer
+- **Purpose**: Data optimised for **consumption and insight**.  
+- **Characteristics**:
+  - **Transformations for analytics**: aggregations, KPIs, trends.  
+  - **Denormalisation for performance**: e.g., star schemas, materialised views.  
+  - **Dashboards, reporting, ML features**: all consume from here.  
+
+👉 This is the **“answer layer”** — where data is shaped to meet specific analytical or product needs.  
+
+---
+
+## Guiding Principles
+- **Each layer has one job**:
+  - *Pseudonymised*: strip PII, make data safe.  
+  - *Refined*: resolve, standardise, canonicalise.  
+  - *Derived*: optimise for consumption.  
+- **Never re-identify**: once pseudonymised, data is never re-linked to PII.  
+- **Progressive enrichment**: only done at the right layer, avoiding premature interpretation.  
+- **Auditability**: every field can be traced back to source feeds via the pseudonymised layer.  
+
+
+## Pseudonymised Layer
+
+The **Pseudonymised Layer** is the first stage of our data pipeline, designed to handle personally identifiable information (PII) safely while supporting initial enrichment and transformation. Data in this layer is **pseudonymised before it is persisted**, ensuring no raw PII is stored.
+
+### Layer Purpose
+
+- **Redact PII** from incoming raw feeds.
+- Perform minimal enrichment or calculated values that require PII as input.
+- Maintain a feed- and date-oriented structure for easy partitioning and incremental processing.
+- Separate data that is near-raw from data that has already been derived or calculated from raw input.
+
+### Storage Structure
+
+Data is stored in an **object storage (e.g., S3, GCS, or Azure Blob)** using a feed-first hierarchy. Each feed has its own top-level directory, partitioned by date, with separate subdirectories for near-raw pseudonymised data and calculated/derived data:
+
+```
+### Pseudonymised Layer Directory Structure
+
+pseudonymised/
+├── feed_a/
+│   └── YYYY/
+│       └── MM/
+│           └── DD/
+│               ├── raw/          # Pseudonymised, near-raw data
+│               └── calculated/   # Derived/enriched data from raw input
+├── feed_b/
+│   └── YYYY/
+│       └── MM/
+│           └── DD/
+│               ├── raw/
+│               └── calculated/
+
+```
+
+
+- **Feed**: Top-level directory representing the source of the data.
+- **Date partitioning**: Organises data by ingestion or snapshot date, supporting incremental processing.
+- **`raw/`**: Stores data closely resembling the original input, but with all PII pseudonymised.
+- **`calculated/`**: Stores data derived from the raw input (e.g., initial enrichments, computed metrics).
+
+### Notes
+
+- This layer is **transient in nature**; it is not intended for canonical modeling or conflict resolution. That is handled in the **Refined Layer**.
+- Pipelines operating on this layer are split into two sub-pipelines:
+  - `pipeline_pseudonymised_raw.py` → outputs near-raw pseudonymised data
+  - `pipeline_pseudonymised_enriched.py` → outputs calculated/enriched data derived from raw input
+- Keeping raw-like and calculated data separate simplifies processing and ensures clarity in downstream transformations.
+
+
+## Pipeline Layers
+
+### 1. Pseudonymised Layer (entry point)
+- **Script**: `pipeline_pseudonymised.py`
+- **Role**: Orchestrates ingestion of incoming raw data.
+- Immediately triggers sub-pipelines to handle pseudonymisation and enrichment.
+
+#### Sub-pipelines
+- **`pipeline_pseudonymised_raw.py`**  
+  - Strips or replaces all PII fields.  
+  - Outputs data that is *structurally close to the raw feed* but pseudonymised.  
+  - This dataset acts as the safe baseline for downstream use.
+
+- **`pipeline_pseudonymised_enriched.py`**  
+  - Runs enrichments that **depend on PII** at calculation time (e.g., age at ingestion).  
+  - Ensures PII is pseudonymised *before persistence*.  
+  - Outputs new pseudonymised data types that complement the pseudonymised raw.
+
+---
+
+### 2. Refined Layer
+- **Script**: `pipeline_refined.py`
+- **Role**:  
+  - Consumes outputs of the pseudonymised raw and pseudonymised new data.  
+  - Standardises formats, applies harmonisation, and builds relational models.  
+  - Designed for data engineers and analysts to work with directly.  
+
+---
+
+### 3. Derived Layer
+- **Script**: `pipeline_derived.py`
+- **Role**:  
+  - Consumes from the refined layer.  
+  - Produces analytics-ready datasets and aggregates.  
+  - Optimised for reporting, dashboards, and machine learning features.
+
+---
+
+## Principles
+
+- **Separation of Concerns**: Each pipeline handles only its own transformations.  
+- **Immediate Pseudonymisation**: PII never leaves the raw entry point unprocessed.  
+- **Modular Orchestration**: `pipeline_raw.py` coordinates sub-pipelines, keeping logic isolated.  
+- **Future-Proofing**: Any stage can be reimplemented (e.g., scaling out with Spark) without affecting the others.  
+- **Auditability**: Each layer is a checkpoint, supporting lineage and troubleshooting.  
+
+
 ## 1. Separation of Data Layers
 
 We organize data into three distinct layers:
@@ -133,6 +284,7 @@ Store detailed provenance in a lineage table or catalog.
 ## Add monitoring and alerting
 ## Add a Pseudonymisation step
 ## Merging records
+## PII detection before writting to pseudonymised layer
 
 ## Timeout, network error, retry logic
 

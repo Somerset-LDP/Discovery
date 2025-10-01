@@ -38,4 +38,10 @@ def write_raw_patients(raw_patients, path="datalake/raw_patients.parquet"):
 
 def run(input_json):
     raw_patients = read_raw_input(input_json)
+
+    # TODO - 
+    # call out to sub pipelines 
+    # - pipeline_pseudonymised_raw.py 
+    # - pipeline_pseudonymised_enriched.py
+
     write_raw_patients(raw_patients)

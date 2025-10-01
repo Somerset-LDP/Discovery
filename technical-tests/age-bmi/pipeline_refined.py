@@ -1,8 +1,11 @@
 import os
+from typing import Optional
 import pandas as pd
 from sqlalchemy import create_engine
 import logging
-from fhir import DiagnosticsService, TerminologyService
+from fhirclient import client
+from fhir.diagnostic_service import DiagnosticsService
+from fhir.terminology_service import TerminologyService
 
 logging.basicConfig(
     filename='logs/pipeline_refined_errors.log',
@@ -10,12 +13,12 @@ logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s'
 )
 
-def map_to_snomed(type_code, type_code_system):
+def map_to_snomed(type_code, type_code_system, fhir_client: Optional[client.FHIRClient] = None):
     """
     Use ConceptMap to map input code/system to SNOMED-CT code.
     Ensures the resulting code system is SNOMED-CT.
     """
-    snomed_coding = TerminologyService.translate(code=type_code, system=type_code_system)
+    snomed_coding = TerminologyService.translate(code=type_code, system=type_code_system, client=fhir_client)
     if snomed_coding and snomed_coding.system == "http://snomed.info/sct":
         return snomed_coding
     else:
@@ -31,8 +34,8 @@ def convert_value_to_standard_unit(value, input_unit, standard_unit):
     # TODO: Implement real unit conversion logic
     return value    
 
-def standardise_observation(obs):
-    snomed_code = map_to_snomed(obs["type"], obs["type_code_system"])
+def standardise_observation(obs, fhir_client: Optional[client.FHIRClient] = None):
+    snomed_code = map_to_snomed(obs["type"], obs["type_code_system"], fhir_client)
     if not snomed_code: 
         logging.warning(f"Could not map observation type '{obs['type']}' ({obs['type_code_system']}) to SNOMED-CT.")
         return None
@@ -41,7 +44,7 @@ def standardise_observation(obs):
         logging.warning(f"Mapped SNOMED-CT coding has no 'code' property: {snomed_code}")
         return None
     
-    obs_def = DiagnosticsService.get_observation_definition(snomed_code.code)
+    obs_def = DiagnosticsService.get_observation_definition(snomed_code.code, fhir_client)
     if not obs_def or not obs_def.quantitativeDetails or not obs_def.quantitativeDetails.permittedUnits:
         logging.warning(f"No valid ObservationDefinition or permitted units found for SNOMED-CT code '{snomed_code}'.")
         return None
@@ -60,29 +63,31 @@ def standardise_observation(obs):
 
     return standardised_obs
 
-def standardise_patient_observations(raw_patients):
+def standardise_patient_observations(raw_patients, fhir_client: Optional[client.FHIRClient] = None):
     enriched_patients = []
     for patient in raw_patients:
         # Copy patient to avoid mutating input
         patient_copy = dict(patient)
         patient_copy["observations"] = list(patient.get("observations", []))  # ensure it's a list
         for obs in patient.get("observations", []):
-            standardised_obs = standardise_observation(obs)
+            standardised_obs = standardise_observation(obs, fhir_client)
             if standardised_obs:
                 patient_copy["observations"].append(standardised_obs)
         enriched_patients.append(patient_copy)
     return enriched_patients
 
-def write_refined_patients(output_df):
+def write_refined_patients(output_df, engine=None):
     """
     Store the output DataFrame to a relational database table.
     """
-    db_url = os.getenv("DATABASE_URL")
+    if engine is None:
+        db_url = os.getenv("DATABASE_URL")
+        if db_url is None:
+            raise EnvironmentError("Environment variable DATABASE_URL must be set.")
+        from sqlalchemy import create_engine
+        engine = create_engine(db_url)
 
-    if db_url is None:
-      raise EnvironmentError("Environment variable DATABASE_URL must be set.")   
     table_name = "patient"  
-    engine = create_engine(db_url)
     output_df.to_sql(table_name, engine, if_exists="append", index=False)
 
 def transform_to_refined_patients(patients):
@@ -125,8 +130,9 @@ def read_raw_patients(path="datalake/raw_patients.parquet"):
     df = pd.read_parquet(path)
     return df.to_dict(orient="records") 
 
-def run_():
-    raw_patients = read_raw_patients()
-    enriched_patients = standardise_patient_observations(raw_patients)
+def run_refined_pipeline(raw_patients, refined_store=None, fhir_client: Optional[client.FHIRClient] = None):
+    # TODO - this first step now needs to read the unprocseed records from the pseudonymised layer - raw and enriched
+    #raw_patients = read_raw_patients()
+    enriched_patients = standardise_patient_observations(raw_patients, fhir_client)
     output_df = transform_to_refined_patients(enriched_patients)
-    write_refined_patients(output_df)
+    write_refined_patients(output_df, refined_store)

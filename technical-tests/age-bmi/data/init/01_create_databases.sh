@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 set -e
 
-echo "Creating FHIR database..."
-if createdb --username "$POSTGRES_USER" hapi; then
-    echo "Database 'hapi' created successfully."
+# Ensure we are in the init directory (changes to the directory where the script itself resides)
+cd "$(dirname "$0")"
+
+# Check if the database exists
+DB_EXISTS=$(psql -U "$POSTGRES_USER" -tAc "SELECT 1 FROM pg_database WHERE datname='ldp'")
+
+if [ "$DB_EXISTS" != "1" ]; then
+  echo "Creating LDP database..."
+  #psql -U "$POSTGRES_USER" --dbname postgres -c "CREATE DATABASE ldp;"
+  createdb -U "$POSTGRES_USER" ldp
 else
-    echo "Failed to create database 'hapi'."
-    exit 1
+  echo "Database 'ldp' already exists."
 fi
 
-echo "Creating LDP database..."
-if createdb --username "$POSTGRES_USER" ldp; then
-    echo "Database 'ldp' created successfully."
+# Check if the FHIR database exists
+DB_EXISTS=$(psql -U "$POSTGRES_USER" -tAc "SELECT 1 FROM pg_database WHERE datname='hapi'")
+
+if [ "$DB_EXISTS" != "1" ]; then
+  echo "Creating FHIR database..."
+  #psql -U "$POSTGRES_USER" --dbname postgres -c "CREATE DATABASE hapi;"
+  createdb -U "$POSTGRES_USER" hapi
 else
-    echo "Failed to create database 'ldp'."
-    exit 1
+  echo "Database 'hapi' already exists."
 fi

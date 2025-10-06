@@ -1,13 +1,8 @@
-from typing import Optional, ClassVar, Dict
+from typing import Optional
 from fhirclient import client
-from fhirclient.models.observationdefinition import ObservationDefinition
-from fhirclient.models.observation import Observation
-from fhirclient.models.fhirabstractbase import FHIRValidationError
 from fhirclient.models import parameters as fhir_parameters
 from fhirclient.models.coding import Coding
-from fhirclient.models.quantity import Quantity
-from fhirclient.models.codeableconcept import CodeableConcept
-from datetime import datetime, time
+from urllib.parse import quote
 import logging
 
 logging.basicConfig(
@@ -15,13 +10,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s'
 )
-
-def _get_fhir_client(api_base: str = "", app_id: str = "terminology-service") -> client.FHIRClient:
-    settings = {
-        "app_id": app_id,
-        "api_base": api_base,
-    }
-    return client.FHIRClient(settings=settings)
 
 # Terminology module - https://build.fhir.org/terminology-module.html
 
@@ -39,14 +27,16 @@ class TerminologyService:
         translation: Optional[Coding] = None
 
         # Use injected client or default
-        client = client or _get_fhir_client()
+        client = client or cls._get_fhir_client()
         server = client.server
 
         if server:
-            url = f"{server.base_uri}/ConceptMap/$translate?code={code}&system={system}"
-
-            logging.debug(f"Calling $translate at {url}")
-            result = server.request_json(url)
+            encoded_code = quote(code, safe='')
+            encoded_system = quote(system, safe='')
+            path = f"ConceptMap/$translate?code={encoded_code}&system={encoded_system}"
+            logging.debug(f"Calling $translate at path {path}")
+            
+            result = server.request_json(path)
 
             if result:
                 parameters = fhir_parameters.Parameters(result)
@@ -92,5 +82,14 @@ class TerminologyService:
                 logging.error(f"Invalid Coding: missing 'system' or 'code' in {coding.as_json()}")
                 coding = None
 
-        return coding                
+        return coding                  
 
+    @classmethod
+    def _get_fhir_client(cls, api_base: str = "", app_id: str = "terminology-service") -> client.FHIRClient:
+        settings = {
+            "app_id": app_id,
+            "api_base": api_base,
+        }
+        return client.FHIRClient(settings=settings)
+
+    from urllib.parse import urlparse      

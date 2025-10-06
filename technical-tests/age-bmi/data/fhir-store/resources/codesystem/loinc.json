@@ -1,0 +1,36 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "loinc",
+  "url": "http://loinc.org",
+  "version": "2.74",
+  "name": "LOINC",
+  "status": "active",
+  "content": "complete",
+  "concept": [
+    {
+      "code": "44005-7",
+      "display": "Diabetes mellitus type 2",
+      "definition": "A type of diabetes mellitus that is characterized by high blood sugar, insulin resistance, and relative lack of insulin."
+    },
+    {
+      "code": "8480-6",
+      "display": "Hypertension",
+      "definition": "A disorder characterized by consistently high blood pressure."
+    },
+    {
+      "code": "20109-3",
+      "display": "Asthma",
+      "definition": "A chronic inflammatory disease of the airways."
+    },
+    {
+      "code": "8302-2",
+      "display": "Body height",
+      "definition": "The measurement of the vertical distance from the bottom to the top of the body."
+    },
+    {
+      "code": "29463-7",
+      "display": "Body weight",
+      "definition": "The measurement of the mass or heaviness of the body."
+    }
+  ]
+}

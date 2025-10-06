@@ -1,0 +1,36 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "snomed-ct",
+  "url": "http://snomed.info/sct",
+  "version": "20231001",
+  "name": "SNOMED-CT",
+  "status": "active",
+  "content": "complete",
+  "concept": [
+    {
+      "code": "44054006",
+      "display": "Diabetes mellitus type 2",
+      "definition": "A type of diabetes mellitus that is characterized by high blood sugar, insulin resistance, and relative lack of insulin."
+    },
+    {
+      "code": "38341003",
+      "display": "Hypertension",
+      "definition": "A disorder characterized by consistently high blood pressure."
+    },
+    {
+      "code": "195967001",
+      "display": "Asthma",
+      "definition": "A chronic inflammatory disease of the airways."
+    },
+    {
+      "code": "248326004",
+      "display": "Body height",
+      "definition": "The measurement of the vertical distance from the bottom to the top of the body."
+    },
+    {
+      "code": "27113001",
+      "display": "Body weight",
+      "definition": "The measurement of the mass or heaviness of the body."
+    }
+  ]
+}

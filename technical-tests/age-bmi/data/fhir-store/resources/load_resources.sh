@@ -1,23 +1,48 @@
 #!/bin/bash
-# filepath: ethnicity/bin/start.sh
+# filepath: data/fhir-store/resources/load_resources.sh
 
 set -e
 
+if [ -z "$1" ]; then
+  echo "Usage: $0 <FHIR_BASE_URL>"
+  exit 1
+fi
+
+FHIR_BASE_URL="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-TERMINOLOGY_SERVER_DIR="$PROJECT_ROOT/terminology-server"
-TERMINOLOGY_RESOURCES_DIR="$PROJECT_ROOT/terminology-resources"
-FHIR_BASE_URL="http://localhost:8080/fhir/"
+FHIR_STORE_DIR="$SCRIPT_DIR"
 TIMEOUT=60  # seconds
+
+resource_exists() {
+  local resource_type="$1"
+  local id="$2"
+  local url="${FHIR_BASE_URL}/${resource_type}/$id"
+
+  # Check existence by id only
+  if [ -n "$id" ]; then
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$url")
+    if [ "$STATUS" -eq 200 ]; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
 
 upload_resources() {
   local resource_dir="$1"
   local resource_type="$2"
-  local endpoint="${FHIR_BASE_URL}${resource_type}"
+  local endpoint="${FHIR_BASE_URL}/${resource_type}"
 
   echo "Uploading ${resource_type} resources from $resource_dir..."
   for file in "$resource_dir"/*.json; do
     if [ -f "$file" ]; then
+      # Extract id from the resource
+      ID=$(jq -r '.id // empty' "$file")
+      if resource_exists "$resource_type" "$ID"; then
+        echo "Resource $(basename "$file") (id: $ID) already exists. Skipping."
+        continue
+      fi
       echo "Uploading $(basename "$file") to $endpoint"
       RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST \
         -H "Content-Type: application/fhir+json; charset=UTF-8" \
@@ -32,10 +57,11 @@ upload_resources() {
   done
 }
 
-echo "Loading FHIR resources from $TERMINOLOGY_RESOURCES_DIR..."
+echo "Loading FHIR resources from $FHIR_STORE_DIR..."
 
-upload_resources "$TERMINOLOGY_RESOURCES_DIR/codesystem" "CodeSystem"
-upload_resources "$TERMINOLOGY_RESOURCES_DIR/valueset" "ValueSet"
-upload_resources "$TERMINOLOGY_RESOURCES_DIR/conceptmap" "ConceptMap"
+upload_resources "$FHIR_STORE_DIR/codesystem" "CodeSystem"
+upload_resources "$FHIR_STORE_DIR/valueset" "ValueSet"
+upload_resources "$FHIR_STORE_DIR/conceptmap" "ConceptMap"
+upload_resources "$FHIR_STORE_DIR/observationdefinition" "ObservationDefinition"
 
 echo "All resources processed."

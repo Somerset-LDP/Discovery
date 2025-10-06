@@ -1,0 +1,23 @@
+{
+  "resourceType": "ValueSet",
+  "id": "loinc_medical_conditions",
+  "url": "https://nhssomerset.nhs.uk/ldp/valueset/loinc-medical-conditions",
+  "version": "1.0.0",
+  "name": "LOINC Medical Conditions",
+  "status": "active",
+  "description": "Medical conditions from LOINC",
+  "compose": {
+    "include": [
+      {
+        "system": "http://loinc.org",
+        "concept": [
+          { "code": "44005-7", "display": "Diabetes mellitus type 2" },
+          { "code": "8480-6", "display": "Hypertension" },
+          { "code": "20109-3", "display": "Asthma" },
+          { "code": "8302-2", "display": "Body height" },
+          { "code": "29463-7", "display": "Body weight" }
+        ]
+      }
+    ]
+  }
+}

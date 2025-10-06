@@ -1,0 +1,74 @@
+{
+  "resourceType": "ConceptMap",
+  "id": "loinc_to_snomed_medical_conditions",
+  "url": "https://nhssomerset.nhs.uk/ldp/conceptmap/loinc-to-snomed-medical-conditions",
+  "version": "1.0.0",
+  "name": "LOINC To SNOMED-CT MedicalConditions",
+  "status": "active",
+  "description": "Maps medical condition codes from LOINC to equivalent SNOMED CT codes.",
+  "sourceUri": "https://nhssomerset.nhs.uk/ldp/valueset/loinc-medical-conditions",
+  "targetUri": "https://nhssomerset.nhs.uk/ldp/valueset/snomed-ct-medical-conditions",
+  "group": [
+    {
+      "source": "http://loinc.org",
+      "target": "http://snomed.info/sct",
+      "element": [
+        {
+          "code": "44005-7",
+          "display": "Diabetes mellitus type 2",
+          "target": [
+            {
+              "code": "44054006",
+              "display": "Diabetes mellitus type 2",
+              "equivalence": "equivalent"
+            }
+          ]
+        },
+        {
+          "code": "8480-6",
+          "display": "Hypertension",
+          "target": [
+            {
+              "code": "38341003",
+              "display": "Hypertension",
+              "equivalence": "equivalent"
+            }
+          ]
+        },
+        {
+          "code": "20109-3",
+          "display": "Asthma",
+          "target": [
+            {
+              "code": "195967001",
+              "display": "Asthma",
+              "equivalence": "equivalent"
+            }
+          ]
+        },
+        {
+          "code": "8302-2",
+          "display": "Body height",
+          "target": [
+            {
+              "code": "248326004",
+              "display": "Body height",
+              "equivalence": "equivalent"
+            }
+          ]
+        },
+        {
+          "code": "29463-7",
+          "display": "Body weight",
+          "target": [
+            {
+              "code": "27113001",
+              "display": "Body weight",
+              "equivalence": "equivalent"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

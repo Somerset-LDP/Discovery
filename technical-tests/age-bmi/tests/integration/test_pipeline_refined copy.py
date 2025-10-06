@@ -1,45 +1,44 @@
 from datetime import datetime
 from decimal import Decimal
+from importlib.abc import Traversable
 import os
-import sys
-import time
-import shutil
-import tempfile
-import traceback
-import subprocess
 from pathlib import Path
-
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
-from typing import Generator
-
 from testcontainers.postgres import PostgresContainer
+from pipeline_refined import run_refined_pipeline
+from sqlalchemy import Connection, create_engine, text
+from sqlalchemy.engine import Engine, URL
+from typing import Generator, Optional, cast
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.core.network import Network
-
-from importlib.resources import files, as_file
-
+import requests
 from fhirclient import client
-from pipeline_refined import run_refined_pipeline
+import time
+import stat
+import shutil
+import tempfile
+from pathlib import Path
+from importlib.resources import files, as_file
+import traceback
+import sys
 
 valid_raw_patient = {
         "patient_id": 12345,
         "dob": "1985-06-15",
         "observations": [
             {
-                "type": "8302-2",
-                "type_code_system": "http://loinc.org",
-                "value": 172,
-                "unit": "cm",
+                "type": "Blood Pressure",
+                "type_code_system": "LOINC",
+                "value": 120,
+                "unit": "mmHg",
                 "observation_time": "2025-09-30T09:30:00Z"
             },
             {
-                "type": "29463-7",
-                "type_code_system": "http://loinc.org",
-                "value": 68.5,
-                "unit": "kg",
+                "type": "Heart Rate",
+                "type_code_system": "SNOMED",
+                "value": 72,
+                "unit": "beats/min",
                 "observation_time": "2025-09-30T09:35:00Z"
             }
         ]
@@ -48,10 +47,10 @@ valid_raw_patient = {
 valid_refined_patient = {
         "patient_id": 12345,
         "dob": "1985-06-15",
-        "height_cm": Decimal("172.00"),
-        "height_observation_time": datetime.fromisoformat("2025-09-30T09:30:00"),
-        "weight_kg": Decimal("68.50"),
-        "weight_observation_time": datetime.fromisoformat("2025-09-30T09:35:00"),
+        "height_cm": Decimal("180.50"),
+        "height_observation_time": datetime.fromisoformat("2025-09-30T09:00:00"),
+        "weight_kg": Decimal("75.20"),
+        "weight_observation_time": datetime.fromisoformat("2025-09-30T09:05:00"),
         "bmi": Decimal("23.10"),
         "bmi_calculation_time": datetime.fromisoformat("2025-09-30T09:10:00")
     } 
@@ -66,6 +65,42 @@ def docker_network() -> Generator[Network, None, None]:
     yield network
 
     network.remove()  # type: ignore
+
+def wait_for_fhir_server(base_url: str, timeout: int = 120, interval: float = 5.0, container: Optional[DockerContainer] = None):
+    """
+    Wait until the FHIR server responds to /metadata or timeout.
+    If container is provided, print logs while waiting.
+    """
+    start_time = time.time()
+    metadata_url = f"{base_url}metadata"
+
+    while True:
+        try:
+            resp = requests.get(metadata_url)
+            if resp.status_code == 200:
+                print(f"[DEBUG] FHIR server ready at {metadata_url}")
+                return
+        except requests.RequestException:
+            pass
+
+        if container:
+            print("[DEBUG] Waiting for FHIR server to start...")
+            #print(container.get_logs())
+
+        elapsed = time.time() - start_time
+        if elapsed > timeout:
+            raise RuntimeError(f"FHIR server at {base_url} did not start within {timeout} seconds")
+        
+        time.sleep(interval)
+
+def execute_sql(sql_file: Traversable, conn: Connection):
+    sql_file = files("data.init.ddl") / "schema_refined.sql"
+    print(f"[DEBUG] Executing SQL file: {sql_file.name}")
+
+    sql_text = sql_file.read_text()
+    print(f"[DEBUG] SQL content preview (first 200 chars): {sql_text[:200]}...")        
+
+    conn.execute(text(sql_text))    
 
 def postgres_init_dir(resource_package: str = "data.init") -> Path:
     """
@@ -143,10 +178,10 @@ def postgres_db(docker_network: Network) -> Generator[Engine, None, None]:
         print("Exception during PostgresContainer startup")
         traceback.print_exc(file=sys.stdout)
         shutil.rmtree(init_dir, ignore_errors=True)
-        raise     
-    
+        raise                
+
 @pytest.fixture(scope="session")
-def fhir_container(postgres_db: Engine, docker_network: Network) -> Generator[str, None, None]:
+def fhir_client(postgres_db: Engine, docker_network: Network) -> Generator[client.FHIRClient, None, None]:
     """
     Spins up a HAPI FHIR server container for integration tests.
     Returns the base URL for the FHIR server.
@@ -166,45 +201,35 @@ def fhir_container(postgres_db: Engine, docker_network: Network) -> Generator[st
     local_config = files("fhir") / "hapi.application.yaml"    
     container_config_path = "/app/config/application.yaml"
 
+            #.with_env("SPRING_DATASOURCE_USERNAME", "test") \
+        #.with_env("SPRING_DATASOURCE_PASSWORD", "test")
+
     with DockerContainer("hapiproject/hapi:latest") \
         .with_network(docker_network) \
         .with_exposed_ports(8080) \
         .with_volume_mapping(str(local_config), container_config_path) as container:
+        
+        #time.sleep(60)
+        #print("[DEBUG] HAPI FHIR server container started.")
+        #print(container.get_logs())
 
         wait_for_logs(container, "Started Application", timeout=60)
 
         host_port = container.get_exposed_port(8080)
-        base_url = f"http://localhost:{host_port}/fhir"
+        base_url = f"http://localhost:{host_port}"
 
         #wait_for_fhir_server(base_url, container=container)
         print(f"[DEBUG] FHIR server will be accessible at {base_url}")
 
-        yield base_url
+        settings = {
+            "app_id": "fhir-server",
+            "api_base": base_url
+        }
 
-@pytest.fixture(scope="session")
-def load_fhir_resources(fhir_container) -> Generator[None, None, None]:
-    base_url = fhir_container
-    with as_file(files("data.fhir-store.resources") / "load_resources.sh") as script_path:
-        subprocess.run([str(script_path), base_url], check=True)
-    yield  # No return value needed
-
-@pytest.fixture(scope="session")
-def fhir_client(fhir_container, load_fhir_resources) -> Generator[client.FHIRClient, None, None]:
-    base_url = fhir_container
-
-    settings = {
-        "app_id": "fhir-server",
-        "api_base": base_url
-    }
-
-    print("Initializing FHIRServer with api_base:", settings['api_base'])
-    yield client.FHIRClient(settings=settings)               
+        print("Initializing FHIRServer with api_base:", settings['api_base'])
+        yield client.FHIRClient(settings=settings)
 
 def test_run_pipeline(postgres_db: Engine, fhir_client: client.FHIRClient):
-    # Set up environment variables for SNOMED codes
-    os.environ["SNOMED_BODY_HEIGHT"] = "248326004"
-    os.environ["SNOMED_BODY_WEIGHT"] = "27113001"
-
     with postgres_db.connect() as conn:
         result = conn.execute(text("SELECT COUNT(*) FROM refined.patient")).scalar_one()
         assert result == 0, f"Expected 0 patients before insertion, found {result}"         

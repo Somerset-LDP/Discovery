@@ -23,5 +23,14 @@ services:
     depends_on:
       - db
 
+fhir-loader:
+    image: alpine:latest
+    depends_on:
+      - fhir
+    volumes:
+      - ./data/fhir-store:/data/fhir-store
+      - ./data/fhir-store/load_resources.sh:/load_resources.sh
+    ntrypoint: ["/bin/sh", "-c", "while [ \"$(curl -s -o /dev/null -w '%{http_code}' http://fhir:8080/fhir/metadata)\" != \"200\" ]; do sleep 5; done; /load_resources.sh http://fhir:8080/fhir"]
+
 volumes:
   pgdata:

@@ -72,15 +72,11 @@ def log_resource_usage(start_time, label, pre_cpu=None):
     logging.info(message)
 
 
-def pseudonymise_field(algorithm, field_data, field_name, nonce_suffix=None, associated_data=None):
+def pseudonymise_field(algorithm, field_data, field_name, associated_data):
     """Helper function to pseudonymise a single field consistently"""
     if isinstance(algorithm, AESGCMSIV):
-        # Create deterministic nonce exactly 12 bytes long
+        # Create deterministic nonce exactly 12 bytes long from field name
         base_nonce = b"field_" + field_name.encode()
-        if nonce_suffix:
-            base_nonce += nonce_suffix
-
-        # Ensure exactly 12 bytes by truncating or padding
         if len(base_nonce) >= 12:
             nonce = base_nonce[:12]
         else:
@@ -88,8 +84,11 @@ def pseudonymise_field(algorithm, field_data, field_name, nonce_suffix=None, ass
 
         return [algorithm.encrypt(nonce, value.encode(), associated_data) for value in field_data]
     else:  # AESSIV
-        ad = associated_data if isinstance(associated_data, list) else [associated_data]
-        ad = ad + [field_name.encode()]
+        # Convert associated_data to list if it's not already
+        if isinstance(associated_data, list):
+            ad = associated_data + [field_name.encode()]
+        else:
+            ad = [associated_data, field_name.encode()]
         return [algorithm.encrypt(value.encode(), ad) for value in field_data]
 
 
@@ -280,7 +279,7 @@ def test_tamper_detection_aesgcmsiv(test_data):
     tamper_detected = 0
     for i in range(10):
         nhs = df['nhs_number'].iloc[i]
-        nonce = b"field_nhs_nu"  # 12 bytes
+        nonce = b"field_nhs_nu"
         ct = aesgcmsiv.encrypt(nonce, nhs.encode(), associated_data)
         tampered = ct[:-1] + bytes([ct[-1] ^ 0xFF])
         try:
@@ -332,7 +331,6 @@ def test_nonce_misuse_resistance_aesgcmsiv(test_data):
     nonce = b"same_nonce12"  # Intentionally reuse same nonce for different NHS numbers
     associated_data = b"nhs_pseudonymisation"
 
-    # Use 1000 different NHS numbers with same nonce
     nhs_sample = df['nhs_number'].head(1000)
     cts = [aesgcmsiv.encrypt(nonce, nhs.encode(), associated_data) for nhs in nhs_sample]
     unique_cts = len(set(cts))

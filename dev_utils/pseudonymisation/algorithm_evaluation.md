@@ -22,10 +22,10 @@ DOB). Deterministic behaviour enables joins across datasets but leaks equality (
 | Aspect                   | AES-SIV                          | AES-GCM-SIV                         | Winner     |
 |--------------------------|----------------------------------|-------------------------------------|------------|
 | **Performance**          | 41,117 records/sec               | 77,350 records/sec (**88% faster**) | GCM-SIV    |
-| **Nonce Handling**       | ✅ None required                  | ⚠️ Required (but safe if reused)    | SIV        |
-| **Implementation**       | ✅ Simpler                        | More complex nonce management       | SIV        |
+| **Nonce Handling**       | ✅ None required                 | ⚠️ Required (but safe if reused)    | SIV        |
+| **Implementation**       | ✅ Simpler                       | More complex nonce management       | SIV        |
 | **Library Support**      | Google Tink, cryptography        | cryptography (OpenSSL ≥3.2)         | SIV        |
-| **Security & Standards** | ✅ RFC 5297, proven in production | ✅ RFC 8452, AWS adopted             | Equivalent |
+| **Security & Standards** | ✅ RFC 5297, proven in production| ✅ RFC 8452, AWS adopted            | Equivalent |
 
 ## Test Results (100K NHS Records):
 

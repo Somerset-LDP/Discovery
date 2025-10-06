@@ -116,7 +116,10 @@ def transform_to_refined_patients(patients):
     output_rows = []
     for patient in patients:
         height_cm = None
+        height_observation_time = None
         weight_kg = None
+        weight_observation_time = None
+
         dob = patient.get("dob")
         patient_id = patient.get("patient_id")
 
@@ -124,8 +127,10 @@ def transform_to_refined_patients(patients):
             if obs.get("type_code_system") == snomed_coding_system:
                 if obs.get("type") == SNOMED_BODY_HEIGHT:
                     height_cm = obs.get("value")
+                    height_observation_time = obs.get("observation_time")
                 elif obs.get("type") == SNOMED_BODY_WEIGHT:
                     weight_kg = obs.get("value")
+                    weight_observation_time = obs.get("observation_time")
 
         bmi = None
         if height_cm and weight_kg:
@@ -135,8 +140,11 @@ def transform_to_refined_patients(patients):
             "patient_id": patient_id,
             "dob": pd.to_datetime(dob).date() if dob else None,
             "height_cm": height_cm,
+            "height_observation_time": height_observation_time,
             "weight_kg": weight_kg,
-            "bmi": bmi
+            "weight_observation_time": weight_observation_time,
+            "bmi": bmi,
+            "bmi_calculation_time": pd.Timestamp.now()
         })
 
     return pd.DataFrame(output_rows)    

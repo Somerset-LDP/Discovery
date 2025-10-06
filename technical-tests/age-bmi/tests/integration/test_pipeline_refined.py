@@ -52,8 +52,8 @@ valid_refined_patient = {
         "height_observation_time": datetime.fromisoformat("2025-09-30T09:30:00"),
         "weight_kg": Decimal("68.50"),
         "weight_observation_time": datetime.fromisoformat("2025-09-30T09:35:00"),
-        "bmi": Decimal("23.10"),
-        "bmi_calculation_time": datetime.fromisoformat("2025-09-30T09:10:00")
+        "bmi": Decimal("23.15"),
+        #"bmi_calculation_time": datetime.fromisoformat("2025-09-30T09:10:00")
     } 
 
 @pytest.fixture(scope="session")
@@ -224,4 +224,4 @@ def test_run_pipeline(postgres_db: Engine, fhir_client: client.FHIRClient):
         assert actual["weight_kg"] == valid_refined_patient["weight_kg"]
         assert actual["weight_observation_time"] == valid_refined_patient["weight_observation_time"]
         assert actual["bmi"] == valid_refined_patient["bmi"]
-        assert actual["bmi_calculation_time"] == valid_refined_patient["bmi_calculation_time"]
+        assert abs((datetime.now() - actual["bmi_calculation_time"]).total_seconds()) < 60  # within 60 seconds

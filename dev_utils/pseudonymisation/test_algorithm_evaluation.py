@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-from datetime import datetime
 
 import pandas as pd
 import psutil
@@ -15,31 +14,12 @@ from dev_utils.synthetic_data.data_generators import (
     generate_random_dob,
     generate_random_postcode
 )
-
-LOG_FILENAME = None
-
-
-def setup_logging_once():
-    global LOG_FILENAME
-    if LOG_FILENAME is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        LOG_FILENAME = f"test_results_{timestamp}.log"
-        logging.getLogger().handlers.clear()
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(message)s',
-            handlers=[
-                logging.FileHandler(LOG_FILENAME),
-                logging.StreamHandler()
-            ]
-        )
-        logging.info("=== AES-GCM-SIV vs AES-SIV Test Results ===")
-    return LOG_FILENAME
+from dev_utils.pseudonymisation.logging_setup import setup_test_logging
 
 
 @pytest.fixture(scope="module")
 def test_data():
-    setup_logging_once()
+    setup_test_logging("algorithm_evaluation")
     logging.info("Generating 100k synthetic NHS records...")
     key = b"0" * 32  # 256-bit key
     n = 100000  # 100k rows for performance
@@ -63,8 +43,7 @@ def log_resource_usage(start_time, label, pre_cpu=None):
         cpu_percent = process.cpu_percent(interval=None)
         cpu_usage = max(0, cpu_percent - pre_cpu)
     else:
-        # If no pre_cpu, just get current CPU usage
-        cpu_usage = process.cpu_percent(interval=0.1)  # Small interval to get actual usage
+        cpu_usage = process.cpu_percent(interval=0.1)
 
     mem_info = process.memory_info().rss / (1024 * 1024)
     message = f"{label} - Time: {end_time - start_time:.2f}s, CPU: {cpu_usage:.1f}%, RAM: {mem_info:.2f}MB"
@@ -73,9 +52,7 @@ def log_resource_usage(start_time, label, pre_cpu=None):
 
 
 def pseudonymise_field(algorithm, field_data, field_name, associated_data):
-    """Helper function to pseudonymise a single field consistently"""
     if isinstance(algorithm, AESGCMSIV):
-        # Create deterministic nonce exactly 12 bytes long from field name
         base_nonce = b"field_" + field_name.encode()
         if len(base_nonce) >= 12:
             nonce = base_nonce[:12]
@@ -84,7 +61,6 @@ def pseudonymise_field(algorithm, field_data, field_name, associated_data):
 
         return [algorithm.encrypt(nonce, value.encode(), associated_data) for value in field_data]
     else:  # AESSIV
-        # Convert associated_data to list if it's not already
         if isinstance(associated_data, list):
             ad = associated_data + [field_name.encode()]
         else:
@@ -107,7 +83,6 @@ def test_determinism_nhs_field_aesgcmsiv(test_data):
     pre_cpu = process.cpu_percent(interval=None)
     start = time.time()
 
-    # Pseudonymise NHS numbers twice
     nhs_pseudonyms_1 = pseudonymise_field(aesgcmsiv, df['nhs_number'], 'nhs_number', associated_data=associated_data)
     nhs_pseudonyms_2 = pseudonymise_field(aesgcmsiv, df['nhs_number'], 'nhs_number', associated_data=associated_data)
 
@@ -129,7 +104,6 @@ def test_determinism_nhs_field_aessiv(test_data):
     pre_cpu = process.cpu_percent(interval=None)
     start = time.time()
 
-    # Pseudonymise NHS numbers twice
     nhs_pseudonyms_1 = pseudonymise_field(aessiv, df['nhs_number'], 'nhs_number', associated_data=associated_data)
     nhs_pseudonyms_2 = pseudonymise_field(aessiv, df['nhs_number'], 'nhs_number', associated_data=associated_data)
 
@@ -157,7 +131,6 @@ def test_performance_realistic_aesgcmsiv(test_data):
     pre_cpu = process.cpu_percent(interval=None)
     start = time.time()
 
-    # For each record, pseudonymise all sensitive fields
     total_pseudonyms = 0
     sensitive_fields = ['nhs_number', 'name', 'surname', 'dob', 'postcode']
 
@@ -187,7 +160,6 @@ def test_performance_realistic_aessiv(test_data):
     pre_cpu = process.cpu_percent(interval=None)
     start = time.time()
 
-    # For each record, pseudonymise all sensitive fields
     total_pseudonyms = 0
     sensitive_fields = ['nhs_number', 'name', 'surname', 'dob', 'postcode']
 
@@ -217,20 +189,14 @@ def test_cross_dataset_join_aesgcmsiv(test_data):
     key, df = test_data
     aesgcmsiv = AESGCMSIV(key)
     associated_data = b"nhs_pseudonymisation"
-
-    # Create sample datasets
     sample_df = df.head(100).copy()
-
-    # Pseudonymise NHS numbers for both datasets
     nhs_pseudonyms = pseudonymise_field(aesgcmsiv, sample_df['nhs_number'], 'nhs_number',
                                         associated_data=associated_data)
     sample_df['nhs_pseudonym'] = [ct.hex() for ct in nhs_pseudonyms]
 
-    # Simulate two different datasets
     gp_data = sample_df[['nhs_pseudonym', 'name']].copy()
     hospital_data = sample_df[['nhs_pseudonym', 'dob']].copy()
 
-    # Join datasets on NHS pseudonym
     joined = gp_data.merge(hospital_data, on='nhs_pseudonym', how='inner')
 
     message = f"AESGCMSIV cross-dataset join: {len(joined)} records successfully joined on NHS pseudonym"
@@ -245,18 +211,14 @@ def test_cross_dataset_join_aessiv(test_data):
     aessiv = AESSIV(key)
     associated_data = [b"nhs_pseudonymisation"]
 
-    # Create sample datasets
     sample_df = df.head(100).copy()
 
-    # Pseudonymise NHS numbers for both datasets
     nhs_pseudonyms = pseudonymise_field(aessiv, sample_df['nhs_number'], 'nhs_number', associated_data=associated_data)
     sample_df['nhs_pseudonym'] = [ct.hex() for ct in nhs_pseudonyms]
 
-    # Simulate two different datasets
     gp_data = sample_df[['nhs_pseudonym', 'name']].copy()
     hospital_data = sample_df[['nhs_pseudonym', 'dob']].copy()
 
-    # Join datasets on NHS pseudonym
     joined = gp_data.merge(hospital_data, on='nhs_pseudonym', how='inner')
 
     message = f"AESSIV cross-dataset join: {len(joined)} records successfully joined on NHS pseudonym"
@@ -346,8 +308,6 @@ def test_nonce_independence_aessiv(test_data):
     key, df = test_data
     aessiv = AESSIV(key)
     associated_data = [b"nhs_pseudonymisation", b"nhs_number"]
-
-    # Use 1000 different NHS numbers - SIV doesn't need nonces
     nhs_sample = df['nhs_number'].head(1000)
     cts = [aessiv.encrypt(nhs.encode(), associated_data) for nhs in nhs_sample]
     unique_cts = len(set(cts))
@@ -394,10 +354,4 @@ def test_collision_resistance_aessiv(test_data):
     logging.info(message)
     assert unique_pseudonyms == 1000
 
-
-# Log file info at end
-def test_zz_final_log_info(test_data):
-    global LOG_FILENAME
-    if LOG_FILENAME:
-        logging.info("=== Field-Level Pseudonymisation Test Suite Completed ===")
-        print(f"\nAll test results saved to: {LOG_FILENAME}")
+    logging.info("=== Field-Level Pseudonymisation Test Suite Completed ===")

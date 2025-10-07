@@ -1,0 +1,15 @@
+2025-10-07 13:30:46,119 - === AES-GCM-SIV Key Management Comparison ===
+2025-10-07 13:30:46,129 - Starting symmetric key approach test
+2025-10-07 13:30:46,129 - KMS key size: 32 bytes
+2025-10-07 13:30:46,136 - Symmetric - Encrypt performance: 331592 ops/sec
+2025-10-07 13:30:46,136 - Symmetric - Decrypt performance: 397640 ops/sec
+2025-10-07 13:30:46,136 - Symmetric - Decrypted data matches: True
+2025-10-07 13:30:46,170 - Starting asymmetric key derivation approach test
+2025-10-07 13:30:46,232 - RSA public key size: 294 bytes
+2025-10-07 13:30:46,232 - Derived AES key size: 32 bytes
+2025-10-07 13:30:46,248 - Asymmetric - Encrypt performance: 271546 ops/sec
+2025-10-07 13:30:46,248 - Asymmetric - Decrypt performance: 399191 ops/sec
+2025-10-07 13:30:46,248 - Asymmetric - Decrypted data matches: True
+2025-10-07 13:30:46,279 - Symmetric deterministic: True
+2025-10-07 13:30:46,280 - Derived deterministic: True
+2025-10-07 13:30:46,378 - Same derived key used for both encrypt and decrypt operations, result: True

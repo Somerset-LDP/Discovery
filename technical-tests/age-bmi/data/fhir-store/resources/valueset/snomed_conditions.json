@@ -1,6 +1,6 @@
 {
   "resourceType": "ValueSet",
-  "id": "snomed_ct_medical_conditions",
+  "id": "snomed-ct-medical-conditions",
   "url": "https://nhssomerset.nhs.uk/ldp/valueset/snomed-ct-medical-conditions",
   "version": "1.0.0",
   "name": "SNOMED-CT Medical Conditions",

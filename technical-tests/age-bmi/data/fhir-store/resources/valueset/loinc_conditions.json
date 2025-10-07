@@ -1,6 +1,6 @@
 {
   "resourceType": "ValueSet",
-  "id": "loinc_medical_conditions",
+  "id": "loinc-medical-conditions",
   "url": "https://nhssomerset.nhs.uk/ldp/valueset/loinc-medical-conditions",
   "version": "1.0.0",
   "name": "LOINC Medical Conditions",

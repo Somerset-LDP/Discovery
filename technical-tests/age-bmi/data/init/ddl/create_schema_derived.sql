@@ -6,15 +6,10 @@
 
     CREATE TABLE IF NOT EXISTS patient (
         patient_id INT PRIMARY KEY,
-        bmi           NUMERIC(5,2),
-        bmi_calculation_time TIMESTAMP
+        bmi NUMERIC(5,2),
+        bmi_calculation_time TIMESTAMP,
+        bmi_category VARCHAR(50),
+        bmi_category_system VARCHAR(50), 
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
-
-    CREATE TABLE IF NOT EXISTS patient_weight_category (
-        patient_id INT NOT NULL,
-        scheme_name VARCHAR(50) NOT NULL,
-        category VARCHAR(20) NOT NULL,
-        calculation_time TIMESTAMP NOT NULL,
-        PRIMARY KEY (patient_id, scheme_name)
-    );    
-

@@ -4,5 +4,6 @@ psycopg2-binary==2.9.10
 pandas==2.3.2
 streamlit==1.49.1
 fhirclient==4.3.2
+rcpchgrowth==4.0.0
 pytest==8.4.2
 testcontainers==4.13.0

@@ -292,3 +292,17 @@ Store detailed provenance in a lineage table or catalog.
 If you like, I can also add a test for aggregating patients into age ranges directly from mock records, so you can verify your age-bracket logic without querying the DB.
 
 Extend this test file to include an end-to-end test that simulates reading multiple mock records, validating, transforming, and checking calculated BMI, without touching the database. This gives a lightweight pipeline test.
+
+## Age
+We'll calculate on the fly in the derived layer but this might not be efficient long term
+
+BMI classification maning conventions
+
+Format: {population}_{standard}_{metric}_{purpose}_classification.json
+
+Where:
+
+Population: adult | child | pediatric | all_ages
+Standard: who | uk90 | cdc | iotf | custom
+Metric: bmi | weight | height | etc.
+Purpose: clinical | surveillance | research | screening

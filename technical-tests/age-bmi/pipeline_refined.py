@@ -132,9 +132,7 @@ def transform_to_refined_patients(patients):
                     weight_kg = obs.get("value")
                     weight_observation_time = obs.get("observation_time")
 
-        bmi = None
-        if height_cm and weight_kg:
-            bmi = weight_kg / ((height_cm / 100) ** 2)
+        now = pd.Timestamp.now()
 
         output_rows.append({
             "patient_id": patient_id,
@@ -143,8 +141,12 @@ def transform_to_refined_patients(patients):
             "height_observation_time": height_observation_time,
             "weight_kg": weight_kg,
             "weight_observation_time": weight_observation_time,
-            "bmi": bmi,
-            "bmi_calculation_time": pd.Timestamp.now()
+            "ethnicity_code": patient.get("ethnicity", {}).get("code"),
+            "ethnicity_code_system": patient.get("ethnicity", {}).get("system"),
+            "sex_code": patient.get("sex", {}).get("code"),
+            "sex_code_system": patient.get("sex", {}).get("system"),
+            "created_at": now, # TODO - upsert logic required
+            "updated_at": now
         })
 
     return pd.DataFrame(output_rows)    

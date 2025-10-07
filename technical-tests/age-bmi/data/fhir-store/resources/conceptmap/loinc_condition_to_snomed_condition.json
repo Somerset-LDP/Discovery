@@ -1,6 +1,6 @@
 {
   "resourceType": "ConceptMap",
-  "id": "loinc_to_snomed_medical_conditions",
+  "id": "loinc-to-snomed-medical-conditions",
   "url": "https://nhssomerset.nhs.uk/ldp/conceptmap/loinc-to-snomed-medical-conditions",
   "version": "1.0.0",
   "name": "LOINC To SNOMED-CT MedicalConditions",

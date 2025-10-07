@@ -59,31 +59,44 @@ class DiagnosticsService:
     @classmethod
     def _cache_observation_definitions(cls, obs_defs: List[ObservationDefinition]):
         for od in obs_defs:
-            if od.code and od.code.coding:
-                for coding in od.code.coding: # type: ignore
-                    if coding.system and coding.code:
-                        key = f"{coding.system}|{coding.code}"
-                        cls._cache[key] = od   
+            if od.id:
+                cls._cache[od.id] = od
             else:
-                logging.warning(f"ObservationDefinition id={getattr(od, 'id', None)} has no coding in code: {getattr(od.code, 'as_json', lambda: None)() if od.code else None}")                           
-
+                logging.warning(f"Could not cache ObservationDefinition with missing id: {od.as_json()}")
+         
     @classmethod
     def get_observation_definition(cls, code: str, system: str, client: Optional[client.FHIRClient] = None) -> Optional[ObservationDefinition]:
         """
         Looks up an ObservationDefinition in the cache, populating the cache if empty.
         Returns None if not found.
         """
-        key = f"{system}|{code}"
-
         # Populate cache if empty
         if not cls._cache:
             obs_defs = cls._get_all_observation_definitions(client)
             cls._cache_observation_definitions(obs_defs)
 
-        # Lookup in cache
-        obs_def = cls._cache.get(key)
-        if obs_def:
-            return obs_def
+        # Lookup in cache  
+        for od in cls._cache.values():
+            if od.code and od.code.coding:
+                for coding in od.code.coding: # type: ignore
+                    if coding.system == system and coding.code == code:
+                        return od
 
         # Not found
         return None
+    
+    @classmethod
+    def get_observation_definition_by_id(cls, id: str, client: Optional[client.FHIRClient] = None) -> Optional[ObservationDefinition]:
+        """
+        Looks up an ObservationDefinition in the cache, populating the cache if empty.
+        Returns None if not found.
+        """
+        # Populate cache if empty
+        if not cls._cache:
+            obs_defs = cls._get_all_observation_definitions(client)
+            cls._cache_observation_definitions(obs_defs)
+
+        print(f"Cache contains {len(cls._cache)} ObservationDefinitions.")
+
+        # Lookup in cache
+        return cls._cache.get(id)

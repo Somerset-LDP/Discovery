@@ -32,7 +32,7 @@ resource_exists() {
 upload_resources() {
   local resource_dir="$1"
   local resource_type="$2"
-  local endpoint="${FHIR_BASE_URL}/${resource_type}"
+  local base_endpoint="${FHIR_BASE_URL}/${resource_type}"
 
   echo "Uploading ${resource_type} resources from $resource_dir..."
   for file in "$resource_dir"/*.json; do
@@ -43,8 +43,10 @@ upload_resources() {
         echo "Resource $(basename "$file") (id: $ID) already exists. Skipping."
         continue
       fi
+
+      endpoint="$base_endpoint/$ID"
       echo "Uploading $(basename "$file") to $endpoint"
-      RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST \
+      RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X PUT \
         -H "Content-Type: application/fhir+json; charset=UTF-8" \
         --data-binary @"$file" \
         "$endpoint")

@@ -1,6 +1,6 @@
 {
   "resourceType": "ObservationDefinition",
-  "id": "body_height_definition",
+  "id": "body-height-definition",
   "status": "active",
   "code": {
     "coding": [

@@ -1,6 +1,6 @@
 {
   "resourceType": "ObservationDefinition",
-  "id": "body_weight_definition",
+  "id": "body-weight-definition",
   "status": "active",
   "code": {
     "coding": [

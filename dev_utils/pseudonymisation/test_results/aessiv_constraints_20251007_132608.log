@@ -1,0 +1,8 @@
+2025-10-07 13:26:08,863 - === AES-SIV Size Requirements Test ===
+2025-10-07 13:26:08,864 - Starting key size tests
+2025-10-07 13:26:08,867 - Key size 32 bytes (256 bits): success
+2025-10-07 13:26:08,868 - Key size 48 bytes (384 bits): success
+2025-10-07 13:26:08,868 - Key size 64 bytes (512 bits): success
+2025-10-07 13:26:08,868 - Key size 16 bytes (128 bits): failed as expected
+2025-10-07 13:26:08,868 - Key size 24 bytes (192 bits): failed as expected
+2025-10-07 13:26:08,868 - Key size 40 bytes (320 bits): failed as expected

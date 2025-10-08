@@ -5,6 +5,8 @@ import time
 import pandas as pd
 import psutil
 import pytest
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCMSIV, AESSIV
 
 from dev_utils.synthetic_data.data_generators import (
@@ -225,6 +227,95 @@ def test_cross_dataset_join_aessiv(test_data):
     print(message)
     logging.info(message)
     assert len(joined) == 100, "All records should be joinable"
+
+
+# ========================================
+# CROSS-SOURCE MATCHING TESTS
+# Verify pseudonym matching for same NHS number from different sources
+# ========================================
+
+def test_cross_source_matching_aesgcmsiv(test_data):
+    logging.info("=== AESGCMSIV: Cross-Source Matching Test ===")
+    key, df = test_data
+    aesgcmsiv = AESGCMSIV(key)
+    associated_data = b"nhs_pseudonymisation"
+    same_nhs = "1234567890"
+
+    nonce_source1 = b"source1_0001"
+    pseudonym_source1 = aesgcmsiv.encrypt(nonce_source1, same_nhs.encode(), associated_data)
+
+    nonce_source2 = b"source2_0001"
+    pseudonym_source2 = aesgcmsiv.encrypt(nonce_source2, same_nhs.encode(), associated_data)
+
+    different_pseudonyms = pseudonym_source1 != pseudonym_source2
+
+    decrypted1 = aesgcmsiv.decrypt(nonce_source1, pseudonym_source1, associated_data)
+    decrypted2 = aesgcmsiv.decrypt(nonce_source2, pseudonym_source2, associated_data)
+    same_original = decrypted1 == decrypted2 == same_nhs.encode()
+
+    message = f"AESGCMSIV cross-source: Different nonces create different pseudonyms: {different_pseudonyms}"
+    message += f", but decrypt to same NHS: {same_original}"
+    print(message)
+    logging.info(message)
+
+    assert different_pseudonyms, "Same NHS with different nonces should create different pseudonyms"
+    assert same_original, "Both should decrypt to same original NHS number"
+
+    # Additional test: we want deterministic matching across sources
+    deterministic_nonce = hashes.Hash(hashes.SHA256(), backend=default_backend())
+    deterministic_nonce.update(same_nhs.encode())
+    det_nonce_bytes = deterministic_nonce.finalize()[:12]
+
+    pseudonym_det1 = aesgcmsiv.encrypt(det_nonce_bytes, same_nhs.encode(), associated_data)
+    pseudonym_det2 = aesgcmsiv.encrypt(det_nonce_bytes, same_nhs.encode(), associated_data)
+
+    deterministic_match = pseudonym_det1 == pseudonym_det2
+    message = f"AESGCMSIV with deterministic nonce: Same NHS creates same pseudonym: {deterministic_match}"
+    print(message)
+    logging.info(message)
+
+    assert deterministic_match, "Deterministic nonce should create identical pseudonyms"
+
+
+def test_cross_source_matching_aessiv(test_data):
+    logging.info("=== AESSIV: Cross-Source Matching Test ===")
+    key, df = test_data
+    aessiv = AESSIV(key)
+
+    associated_data = [b"nhs_pseudonymisation"]
+    same_nhs = "1234567890"
+
+    pseudonym_source1 = aessiv.encrypt(same_nhs.encode(), associated_data)
+    pseudonym_source2 = aessiv.encrypt(same_nhs.encode(), associated_data)
+
+    same_pseudonyms = pseudonym_source1 == pseudonym_source2
+
+    decrypted1 = aessiv.decrypt(pseudonym_source1, associated_data)
+    decrypted2 = aessiv.decrypt(pseudonym_source2, associated_data)
+    same_original = decrypted1 == decrypted2 == same_nhs.encode()
+
+    message = f"AESSIV cross-source: Same NHS creates identical pseudonyms: {same_pseudonyms}"
+    message += f", and decrypts to same NHS: {same_original}"
+    print(message)
+    logging.info(message)
+
+    assert same_pseudonyms, "AES-SIV should create identical pseudonyms for same NHS"
+    assert same_original, "Both should decrypt to same original NHS number"
+
+    # Test with different source-specific associated data
+    associated_data_gp = [b"nhs_pseudonymisation", b"gp_source"]
+    associated_data_hospital = [b"nhs_pseudonymisation", b"hospital_source"]
+
+    pseudonym_gp = aessiv.encrypt(same_nhs.encode(), associated_data_gp)
+    pseudonym_hospital = aessiv.encrypt(same_nhs.encode(), associated_data_hospital)
+
+    different_with_source_tag = pseudonym_gp != pseudonym_hospital
+
+    message = f"AESSIV with source tags: Different associated data creates different pseudonyms: {different_with_source_tag}"
+    print(message)
+    logging.info(message)
+
+    assert different_with_source_tag, "Different associated data should create different pseudonyms"
 
 
 # ========================================

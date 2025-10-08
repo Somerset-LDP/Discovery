@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from botocore.exceptions import ClientError
 
-from dev_utils import presigned_url_utils
+from dev_utils.presigned_url import presigned_url_utils
 
 
 def test_generate_s3_presigned_url():

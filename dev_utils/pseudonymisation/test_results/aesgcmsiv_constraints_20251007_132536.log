@@ -1,0 +1,11 @@
+2025-10-07 13:25:36,290 - === AES-GCM-SIV Size Requirements Test ===
+2025-10-07 13:25:36,291 - Starting key size tests
+2025-10-07 13:25:36,294 - Key size 16 bytes (128 bits): success
+2025-10-07 13:25:36,294 - Key size 24 bytes (192 bits): success
+2025-10-07 13:25:36,294 - Key size 32 bytes (256 bits): success
+2025-10-07 13:25:36,294 - Key size 40 bytes (320 bits): failed as expected
+2025-10-07 13:25:36,298 - Starting nonce size tests
+2025-10-07 13:25:36,298 - Nonce size 12 bytes (96 bits): success
+2025-10-07 13:25:36,298 - Nonce size 8 bytes (64 bits): failed as expected
+2025-10-07 13:25:36,298 - Nonce size 16 bytes (128 bits): failed as expected
+2025-10-07 13:25:36,298 - Nonce size 20 bytes (160 bits): failed as expected

@@ -1,0 +1,57 @@
+2025-10-08 09:05:03,683 - Generating 100k synthetic NHS records...
+2025-10-08 09:05:05,571 - Generated 100000 records successfully
+2025-10-08 09:05:05,572 - === AESGCMSIV: NHS Field Determinism Test (100k records) ===
+2025-10-08 09:05:06,194 - AESGCMSIV NHS determinism - Time: 0.62s, CPU: 0.0%, RAM: 126.97MB
+2025-10-08 09:05:06,201 - AESGCMSIV NHS determinism mismatches: 0/100000
+2025-10-08 09:05:06,206 - === AESSIV: NHS Field Determinism Test (100k records) ===
+2025-10-08 09:05:07,260 - AESSIV NHS determinism - Time: 1.05s, CPU: 0.0%, RAM: 126.23MB
+2025-10-08 09:05:07,269 - AESSIV NHS determinism mismatches: 0/100000
+2025-10-08 09:05:07,273 - === AESGCMSIV: Realistic Performance Test (100k records × 5 fields) ===
+2025-10-08 09:05:08,760 - AESGCMSIV realistic performance - Time: 1.49s, CPU: 0.0%, RAM: 124.54MB
+2025-10-08 09:05:08,760 - AESGCMSIV realistic throughput: 67268.85 records/sec, 336344.23 fields/sec (100k records × 5 fields = 500,000 total pseudonyms)
+2025-10-08 09:05:08,763 - === AESSIV: Realistic Performance Test (100k records × 5 fields) ===
+2025-10-08 09:05:11,326 - AESSIV realistic performance - Time: 2.56s, CPU: 0.0%, RAM: 124.86MB
+2025-10-08 09:05:11,326 - AESSIV realistic throughput: 39034.38 records/sec, 195171.91 fields/sec (100k records × 5 fields = 500,000 total pseudonyms)
+2025-10-08 09:05:11,330 - === AESGCMSIV: Cross-Dataset Join Test ===
+2025-10-08 09:05:11,353 - AESGCMSIV cross-dataset join: 100 records successfully joined on NHS pseudonym
+2025-10-08 09:05:11,356 - === AESSIV: Cross-Dataset Join Test ===
+2025-10-08 09:05:11,361 - AESSIV cross-dataset join: 100 records successfully joined on NHS pseudonym
+2025-10-08 09:05:11,363 - === AESGCMSIV: Cross-Source Matching Test ===
+2025-10-08 09:05:11,363 - AESGCMSIV cross-source: Different nonces create different pseudonyms: True, but decrypt to same NHS: True
+2025-10-08 09:05:11,391 - AESGCMSIV with deterministic nonce: Same NHS creates same pseudonym: True
+2025-10-08 09:05:11,393 - === AESSIV: Cross-Source Matching Test ===
+2025-10-08 09:05:11,394 - AESSIV cross-source: Same NHS creates identical pseudonyms: True, and decrypts to same NHS: True
+2025-10-08 09:05:11,394 - AESSIV with source tags: Different associated data creates different pseudonyms: True
+2025-10-08 09:05:11,395 - === AESGCMSIV: Tamper Detection Test (NHS field) ===
+2025-10-08 09:05:11,396 - AESGCMSIV tamper detected in NHS 0: InvalidTag
+2025-10-08 09:05:11,396 - AESGCMSIV tamper detected in NHS 1: InvalidTag
+2025-10-08 09:05:11,396 - AESGCMSIV tamper detected in NHS 2: InvalidTag
+2025-10-08 09:05:11,396 - AESGCMSIV tamper detected in NHS 3: InvalidTag
+2025-10-08 09:05:11,397 - AESGCMSIV tamper detected in NHS 4: InvalidTag
+2025-10-08 09:05:11,397 - AESGCMSIV tamper detected in NHS 5: InvalidTag
+2025-10-08 09:05:11,397 - AESGCMSIV tamper detected in NHS 6: InvalidTag
+2025-10-08 09:05:11,397 - AESGCMSIV tamper detected in NHS 7: InvalidTag
+2025-10-08 09:05:11,397 - AESGCMSIV tamper detected in NHS 8: InvalidTag
+2025-10-08 09:05:11,397 - AESGCMSIV tamper detected in NHS 9: InvalidTag
+2025-10-08 09:05:11,398 - AESGCMSIV successfully detected tampering in 10/10 NHS pseudonyms
+2025-10-08 09:05:11,400 - === AESSIV: Tamper Detection Test (NHS field) ===
+2025-10-08 09:05:11,400 - AESSIV tamper detected in NHS 0: InvalidTag
+2025-10-08 09:05:11,400 - AESSIV tamper detected in NHS 1: InvalidTag
+2025-10-08 09:05:11,400 - AESSIV tamper detected in NHS 2: InvalidTag
+2025-10-08 09:05:11,400 - AESSIV tamper detected in NHS 3: InvalidTag
+2025-10-08 09:05:11,400 - AESSIV tamper detected in NHS 4: InvalidTag
+2025-10-08 09:05:11,401 - AESSIV tamper detected in NHS 5: InvalidTag
+2025-10-08 09:05:11,401 - AESSIV tamper detected in NHS 6: InvalidTag
+2025-10-08 09:05:11,401 - AESSIV tamper detected in NHS 7: InvalidTag
+2025-10-08 09:05:11,401 - AESSIV tamper detected in NHS 8: InvalidTag
+2025-10-08 09:05:11,401 - AESSIV tamper detected in NHS 9: InvalidTag
+2025-10-08 09:05:11,401 - AESSIV successfully detected tampering in 10/10 NHS pseudonyms
+2025-10-08 09:05:11,403 - === AESGCMSIV: Nonce Misuse Resistance Test (NHS field, same nonce) ===
+2025-10-08 09:05:11,409 - AESGCMSIV nonce misuse resistance: 1000/1000 unique NHS pseudonyms with same nonce
+2025-10-08 09:05:11,411 - === AESSIV: Nonce Independence Test (NHS field, no nonce needed) ===
+2025-10-08 09:05:11,417 - AESSIV nonce independence: 1000/1000 unique NHS pseudonyms (no nonce needed)
+2025-10-08 09:05:11,419 - === AESGCMSIV: Collision Resistance Test (NHS field, 1000 records) ===
+2025-10-08 09:05:11,423 - AESGCMSIV collision resistance: 1000/1000 unique NHS pseudonyms
+2025-10-08 09:05:11,425 - === AESSIV: Collision Resistance Test (NHS field, 1000 records) ===
+2025-10-08 09:05:11,431 - AESSIV collision resistance: 1000/1000 unique NHS pseudonyms
+2025-10-08 09:05:11,431 - === Field-Level Pseudonymisation Test Suite Completed ===

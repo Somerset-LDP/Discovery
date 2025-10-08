@@ -132,7 +132,6 @@ def test_determinism(setup_logging_fixture, test_data):
     ).derive(public_key_bytes)
     aesgcmsiv_derived = AESGCMSIV(derived_key)
 
-    # Test determinism
     ct_sym_1 = aesgcmsiv_symmetric.encrypt(nonce_bytes, nhs_number, associated_data)
     ct_sym_2 = aesgcmsiv_symmetric.encrypt(nonce_bytes, nhs_number, associated_data)
     ct_der_1 = aesgcmsiv_derived.encrypt(nonce_bytes, nhs_number, associated_data)

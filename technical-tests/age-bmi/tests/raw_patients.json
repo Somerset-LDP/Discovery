@@ -1,0 +1,114 @@
+[
+  {
+    "patient_id": 1,
+    "dob": "1985-03-15",
+    "ethnicity": {
+      "code": "494131000000105",
+      "system": "http://snomed.info/sct"
+    },
+    "sex": {
+      "code": "248152002",
+      "system": "http://snomed.info/sct"
+    },
+    "observations": [
+      {
+        "type": "29463-7",
+        "type_code_system": "http://loinc.org",
+        "value": 154,
+        "unit": "lbs",
+        "observation_time": "2024-10-01T10:00:00Z"
+      },
+      {
+        "type": "8302-2",
+        "type_code_system": "http://loinc.org",
+        "value": 65,
+        "unit": "inches",
+        "observation_time": "2024-10-01T10:05:00Z"
+      }
+    ]
+  },
+  {
+    "patient_id": 2,
+    "dob": "1978-07-22",
+    "ethnicity": {
+      "code": "92681000000104",
+      "system": "http://snomed.info/sct"
+    },
+    "sex": {
+      "code": "248153007",
+      "system": "http://snomed.info/sct"
+    },
+    "observations": [
+      {
+        "type": "27113001",
+        "type_code_system": "http://snomed.info/sct",
+        "value": 75,
+        "unit": "kg",
+        "observation_time": "2024-09-15T14:30:00Z"
+      },
+      {
+        "type": "50373000",
+        "type_code_system": "http://snomed.info/sct",
+        "value": 172,
+        "unit": "cm",
+        "observation_time": "2024-09-15T14:35:00Z"
+      }
+    ]
+  },
+  {
+    "patient_id": 3,
+    "dob": "2014-01-10",
+    "ethnicity": {
+      "code": "494131000000105",
+      "system": "http://snomed.info/sct"
+    },
+    "sex": {
+      "code": "248153007",
+      "system": "http://snomed.info/sct"
+    },
+    "observations": [
+      {
+        "type": "27113001",
+        "type_code_system": "http://snomed.info/sct",
+        "value": 35,
+        "unit": "kg",
+        "observation_time": "2024-10-01T09:00:00Z"
+      },
+      {
+        "type": "50373000",
+        "type_code_system": "http://snomed.info/sct",
+        "value": 140,
+        "unit": "cm",
+        "observation_time": "2024-10-01T09:05:00Z"
+      }
+    ]
+  },
+  {
+    "patient_id": 4,
+    "dob": "2016-05-18",
+    "ethnicity": {
+      "code": "92681000000104",
+      "system": "http://snomed.info/sct"
+    },
+    "sex": {
+      "code": "248152002",
+      "system": "http://snomed.info/sct"
+    },
+    "observations": [
+      {
+        "type": "29463-7",
+        "type_code_system": "http://loinc.org",
+        "value": 58.8,
+        "unit": "lbs",
+        "observation_time": "2024-10-01T11:15:00Z"
+      },
+      {
+        "type": "8302-2",
+        "type_code_system": "http://loinc.org",
+        "value": 47.2,
+        "unit": "inches",
+        "observation_time": "2024-10-01T11:20:00Z"
+      }
+    ]
+  }
+]

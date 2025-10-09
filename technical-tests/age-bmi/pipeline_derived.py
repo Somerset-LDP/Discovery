@@ -9,11 +9,8 @@ from rcpchgrowth import Measurement
 from fhirclient import client
 from calculators.bmi import calculate_bmi_and_category, Code
 
-logging.basicConfig(
-    filename='logs/pipeline_derived_errors.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 def read_refined_patients(changed_since: datetime, refined_store=None) -> pd.DataFrame:
     """
@@ -72,7 +69,7 @@ def write_derived_patients(output_df, derived_store=None):
     try:
         output_df.to_sql("patient", derived_store, if_exists="append", index=False, schema="derived")
     except Exception as e:
-        logging.error(f"Failed to write derived patients to database: {e}", exc_info=True)
+        logger.error(f"Failed to write derived patients to database: {e}", exc_info=True)
         print(f"[ERROR] Failed to write derived patients to database: {e}")
         raise
 

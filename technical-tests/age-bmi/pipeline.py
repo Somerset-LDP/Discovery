@@ -12,11 +12,8 @@ from pipeline_refined import run as run_refined_pipeline
 from pipeline_derived import run_derived_pipeline
 from typing import Optional
 
-logging.basicConfig(
-    filename='logs/ingestion_errors.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 # Legacy functions removed - pipeline now uses modular approach with 
 # dedicated pipeline_pseudonymised.py, pipeline_refined.py, and pipeline_derived.py

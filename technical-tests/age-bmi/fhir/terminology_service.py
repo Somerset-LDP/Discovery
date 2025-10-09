@@ -5,11 +5,8 @@ from fhirclient.models.coding import Coding
 from urllib.parse import quote
 import logging
 
-logging.basicConfig(
-    filename='logs/terminology_service.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 # Terminology module - https://build.fhir.org/terminology-module.html
 
@@ -34,7 +31,7 @@ class TerminologyService:
             encoded_code = quote(code, safe='')
             encoded_system = quote(system, safe='')
             path = f"ConceptMap/$translate?code={encoded_code}&system={encoded_system}"
-            logging.debug(f"Calling $translate at path {path}")
+            logger.debug(f"Calling $translate at path {path}")
             
             result = server.request_json(path)
 
@@ -74,12 +71,12 @@ class TerminologyService:
                         "display": data.get("display"),
                     })
                 else:
-                    logging.error(f"Invalid data type for Coding conversion: {type(data)}")
+                    logger.error(f"Invalid data type for Coding conversion: {type(data)}")
                     coding = None
                     
         if coding:
             if not coding.system or not coding.code:
-                logging.error(f"Invalid Coding: missing 'system' or 'code' in {coding.as_json()}")
+                logger.error(f"Invalid Coding: missing 'system' or 'code' in {coding.as_json()}")
                 coding = None
 
         return coding                  

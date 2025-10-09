@@ -174,6 +174,67 @@ Implements clinically appropriate BMI categories based on:
 
 ---
 
+## The Demo
+
+# Demo Usage
+
+This directory contains sample data and configuration for the Age-BMI Data Pipeline. The demo script (`demo.py`) has been moved to the main age-bmi directory for simplicity.
+
+## Quick Start
+
+1. **Start Docker services:**
+   ```bash
+   docker-compose up -d
+   ```
+
+2. **Environment variables are configured in `.env` file:**
+   - The `.env` file in this directory contains all required environment variables
+   - Variables are automatically loaded when running the demo script
+
+3. **Run the demo:**
+   ```bash
+   # From the age-bmi directory (where your virtual environment is active)
+   python demo.py demo/raw_patients.json
+   ```
+
+## Demo Script Features
+
+The `../demo.py` script (located in the main age-bmi directory):
+- ✅ Automatically loads environment variables from `demo/.env`
+- ✅ Validates required environment variables are set
+- ✅ Validates input file format and content
+- ✅ Creates temporary directory for pseudonymised storage  
+- ✅ Orchestrates the complete pipeline execution
+- ✅ Provides detailed execution summary
+- ✅ Handles errors gracefully with clear messages
+
+## Sample Data
+
+- `raw_patients.json` - Sample patient data demonstrating various:
+  - Age groups (adults and children)
+  - Genders (Male/Female)
+  - Ethnicities (White British, British Asian)
+  - Units (kg/lbs/stone for weight, cm/m/inches for height)
+  - Code systems (SNOMED CT, LOINC)
+
+## Command Line Options
+
+```bash
+# From age-bmi directory (where your virtual environment is active)
+python demo.py --help                    # Show help
+python demo.py demo/raw_patients.json    # Run pipeline with sample data
+python demo.py data/raw_stored.json      # Run pipeline with alternative data
+```
+
+| Patient ID | Age | Gender | Ethnicity | Weight | Weight Unit | Height | Height Unit | Code System |
+|------------|-----|--------|-----------|---------|-------------|---------|-------------|-------------|
+| demo_001 | 40 | Female | White British | 154 | lbs | 65 | inches | LOINC |
+| demo_002 | 47 | Male | British Asian | 75 | kg | 1.72 | m | SNOMED CT |
+| demo_003 | 11 | Male | White British | 35 | kg | 140 | cm | SNOMED CT |
+| demo_004 | 9 | Female | British Asian | 58.8 | lbs | 47.2 | inches | LOINC |
+
+---
+
 ## Technology Stack
 
 ### Core Components

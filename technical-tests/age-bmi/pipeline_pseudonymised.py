@@ -7,11 +7,8 @@ from datetime import datetime
 import os
 from importlib.resources import files
 
-logging.basicConfig(
-    filename='logs/pipeline_pseudonymised_errors.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# Get a logger for this module - don't configure it here
+logger = logging.getLogger(__name__)
 
 def read_raw_input(input_file_path):
     patients = []
@@ -34,7 +31,7 @@ def read_raw_input(input_file_path):
             validate(instance=patient, schema=schema)
             patients.append(patient)
         except ValidationError as e:
-            logging.error(f"Validation error for record {idx}: {e}")  
+            logger.error(f"Validation error for record {idx}: {e}")  
 
     return patients
 

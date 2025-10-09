@@ -5,11 +5,8 @@ from fhirclient import client
 from fhir.diagnostic_service import DiagnosticsService
 from typing import Optional, List, Tuple, TypedDict, Callable, Any
 
-logging.basicConfig(
-    filename='logs/bmi-errors.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 class Code(TypedDict):
     code: str
@@ -95,7 +92,7 @@ def _determine_weight_category(
     obs_def = DiagnosticsService.get_observation_definition_by_id(obs_def_id, fhir_client)
 
     if not obs_def or not obs_def.qualifiedInterval:
-        logging.error(f"ObservationDefinition '{obs_def_id}' not found or it is incomplete.")
+        logger.error(f"ObservationDefinition '{obs_def_id}' not found or it is incomplete.")
         return None
     
     # Iterate through each qualified interval
@@ -135,7 +132,7 @@ def _determine_child_weight_category(bmi: float, dob: date, sex: Code, fhir_clie
     # now convert to sex as used by rcpchgrowth
     rcpchgrowth_sex = _map_snomed_sex_to_rcpchgrowth_sex(sex.get("code"))
     if not rcpchgrowth_sex:
-        logging.warning(f"Unable to calculate weight category. Unknown SNOMED sex code: {sex.get('code')}")
+        logger.warning(f"Unable to calculate weight category. Unknown SNOMED sex code: {sex.get('code')}")
         return category
 
     # Calculate centile first

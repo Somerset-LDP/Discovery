@@ -11,11 +11,8 @@ from datetime import datetime, time
 import logging
 from urllib.parse import quote
 
-logging.basicConfig(
-    filename='logs/diagnostic_service.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 def _get_fhir_client(api_base: str = "", app_id: str = "diagnostics-service") -> client.FHIRClient:
     settings = {
@@ -40,7 +37,7 @@ class DiagnosticsService:
         
         if server:
             path = f"ObservationDefinition?_search"
-            logging.debug(f"Calling $translate at path {path}")
+            logger.debug(f"Calling $translate at path {path}")
             
             result = server.request_json(path)     
 
@@ -52,7 +49,7 @@ class DiagnosticsService:
                             obs_def = ObservationDefinition(resource)
                             obs_defs.append(obs_def)
                         except Exception as e:
-                            logging.error(f"Failed to parse ObservationDefinition: {e}")    
+                            logger.error(f"Failed to parse ObservationDefinition: {e}")    
 
         return obs_defs  
 
@@ -62,7 +59,7 @@ class DiagnosticsService:
             if od.id:
                 cls._cache[od.id] = od
             else:
-                logging.warning(f"Could not cache ObservationDefinition with missing id: {od.as_json()}")
+                logger.warning(f"Could not cache ObservationDefinition with missing id: {od.as_json()}")
          
     @classmethod
     def get_observation_definition(cls, code: str, system: str, client: Optional[client.FHIRClient] = None) -> Optional[ObservationDefinition]:

@@ -23,14 +23,27 @@ services:
     depends_on:
       - db
 
-fhir-loader:
+  fhir-loader:
     image: alpine:latest
     depends_on:
       - fhir
     volumes:
       - ./data/fhir-store:/data/fhir-store
-      - ./data/fhir-store/load_resources.sh:/load_resources.sh
-    ntrypoint: ["/bin/sh", "-c", "while [ \"$(curl -s -o /dev/null -w '%{http_code}' http://fhir:8080/fhir/metadata)\" != \"200\" ]; do sleep 5; done; /load_resources.sh http://fhir:8080/fhir"]
+    working_dir: /data/fhir-store/resources
+    entrypoint: 
+      - "/bin/sh"
+      - "-c"
+      - |
+        apk add --no-cache curl jq bash
+        echo "Current directory: $$(pwd)"
+        chmod +x load_resources.sh
+        echo "Waiting for FHIR server to be ready..."
+        while [ "$$(curl -s -o /dev/null -w '%{http_code}' http://fhir:8080/fhir/metadata)" != "200" ]; do 
+          echo "FHIR server not ready yet, waiting..."
+          sleep 5
+        done
+        echo "FHIR server is ready, loading resources..."
+        ./load_resources.sh http://fhir:8080/fhir
 
 volumes:
   pgdata:

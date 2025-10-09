@@ -9,12 +9,10 @@ from fhir.terminology_service import TerminologyService
 from sqlalchemy import create_engine, Engine
 import json
 from pathlib import Path
+from calculators.unit_converter import convert_value_to_standard_unit, UnitConversionError
 
-logging.basicConfig(
-    filename='logs/pipeline_refined_errors.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# Get a logger for this module
+logger = logging.getLogger(__name__)
 
 snomed_coding_system = "http://snomed.info/sct"
 uom_coding_system = "http://unitsofmeasure.org"
@@ -28,51 +26,84 @@ def map_to_snomed(type_code, type_code_system, fhir_client: Optional[client.FHIR
     if snomed_coding and snomed_coding.system == snomed_coding_system:
         return snomed_coding
     else:
-        logging.warning(f"ConceptMap translation did not return SNOMED-CT code for {type_code} ({type_code_system}).")
+        logger.warning(f"ConceptMap translation did not return SNOMED-CT code for {type_code} ({type_code_system}).")
         return None
 
-def convert_value_to_standard_unit(value, input_unit, standard_unit, standard_unit_system):
-    """
-    Convert value from input_unit to standard_unit.
-    For demo, assume units are compatible and conversion is 1:1.
-    Extend with actual conversion logic as needed.
-    """
-    if standard_unit_system != uom_coding_system:
-        raise ValueError(f"Unsupported standard unit system: {standard_unit_system}. Must be {uom_coding_system}.")
-
-
-    # TODO: Implement real unit conversion logic
-    return value    
-
 def standardise_observation(obs, fhir_client: Optional[client.FHIRClient] = None):
-    snomed_code = map_to_snomed(obs["type"], obs["type_code_system"], fhir_client)
+    """
+    Standardise an observation by mapping to SNOMED-CT and converting units.
+    
+    For observations already in SNOMED-CT with correct units, no conversion occurs.
+    For LOINC observations, maps to SNOMED-CT and converts units as needed.
+    """
+    original_type = obs["type"]
+    original_system = obs["type_code_system"]
+    
+    # If already SNOMED-CT, check if we need unit conversion
+    if original_system == snomed_coding_system:
+        logger.debug(f"Observation {original_type} already in SNOMED-CT system")
+        
+        # Get ObservationDefinition to check expected units
+        obs_def = DiagnosticsService.get_observation_definition(original_type, snomed_coding_system, fhir_client)
+        if not obs_def or not obs_def.quantitativeDetails or not obs_def.quantitativeDetails.unit:
+            logger.warning(f"No valid ObservationDefinition found for SNOMED-CT code '{original_type}'.")
+            # Return original observation - may still be useful
+            return obs
+            
+        standard_unit_code = obs_def.quantitativeDetails.unit.coding[0].code
+        standard_unit_system = obs_def.quantitativeDetails.unit.coding[0].system
+        
+        # Convert units if necessary
+        try:
+            standard_value = convert_value_to_standard_unit(obs["value"], obs["unit"], standard_unit_code, standard_unit_system)
+            
+            return {
+                "type": original_type,
+                "type_code_system": original_system, 
+                "value": standard_value,
+                "unit": standard_unit_code,
+                "observation_time": obs["observation_time"]
+            }
+        except (UnitConversionError, ValueError) as e:
+            logger.error(f"Failed to convert units for SNOMED observation {original_type}: {e}")
+            return obs  # Return original if conversion fails
+    
+    # For non-SNOMED observations, map to SNOMED-CT first
+    snomed_code = map_to_snomed(original_type, original_system, fhir_client)
     if not snomed_code: 
-        logging.warning(f"Could not map observation type '{obs['type']}' ({obs['type_code_system']}) to SNOMED-CT.")
+        logger.warning(f"Could not map observation type '{original_type}' ({original_system}) to SNOMED-CT.")
         return None
 
     if not snomed_code.code:
-        logging.warning(f"Mapped SNOMED-CT coding has no 'code' property: {snomed_code}")
+        logger.warning(f"Mapped SNOMED-CT coding has no 'code' property: {snomed_code}")
         return None
     
     obs_def = DiagnosticsService.get_observation_definition(snomed_code.code, snomed_coding_system, fhir_client)
     if not obs_def or not obs_def.quantitativeDetails or not obs_def.quantitativeDetails.unit:
-        logging.warning(f"No valid ObservationDefinition or permitted units found for SNOMED-CT code '{snomed_code}'.")
+        logger.warning(f"No valid ObservationDefinition or permitted units found for SNOMED-CT code '{snomed_code.code}'.")
         return None
 
     standard_unit_code = obs_def.quantitativeDetails.unit.coding[0].code
     standard_unit_system = obs_def.quantitativeDetails.unit.coding[0].system
-    standard_value = convert_value_to_standard_unit(obs["value"], obs["unit"], standard_unit_code, standard_unit_system)
+    
+    try:
+        standard_value = convert_value_to_standard_unit(obs["value"], obs["unit"], standard_unit_code, standard_unit_system)
 
-    # Create a new standardised observation dict
-    standardised_obs = {
-        "type": snomed_code.code,  # original type
-        "type_code_system": snomed_code.system,  # should be SNOMED-CT
-        "value": standard_value,
-        "unit": standard_unit_code,
-        "observation_time": obs["observation_time"]
-    }
+        # Create a new standardised observation dict
+        standardised_obs = {
+            "type": snomed_code.code,
+            "type_code_system": snomed_code.system,
+            "value": standard_value,
+            "unit": standard_unit_code,
+            "observation_time": obs["observation_time"]
+        }
 
-    return standardised_obs
+        logger.debug(f"Successfully converted {original_type} ({original_system}) to {snomed_code.code} (SNOMED-CT)")
+        return standardised_obs
+        
+    except (UnitConversionError, ValueError) as e:
+        logger.error(f"Failed to convert observation {original_type}: {e}")
+        return None
 
 def standardise_patient_observations(raw_patients, fhir_client: Optional[client.FHIRClient] = None):
     enriched_patients = []
@@ -94,7 +125,7 @@ def write_refined_patients(output_df, engine: Engine):
     try:
         output_df.to_sql("patient", engine, if_exists="append", index=False, schema="refined")
     except Exception as e:
-        logging.error(f"Failed to write refined patients to database: {e}", exc_info=True)
+        logger.error(f"Failed to write refined patients to database: {e}", exc_info=True)
         print(f"[ERROR] Failed to write refined patients to database: {e}")
         raise
 
@@ -168,7 +199,7 @@ def read_pseudonymised_patients(pseudonymised_store) -> List[Dict]:
         else:
             raise FileNotFoundError(f"Pseudonymised store path does not exist: {pseudonymised_store}")    
     else:
-        logging.error("pseudonymised_store must be a file path string.")
+        logger.error("pseudonymised_store must be a file path string.")
         raise ValueError("pseudonymised_store must be a file path string.")
     
 def _init_refined_store() -> Engine:

@@ -1,11 +1,16 @@
 import os
+import argparse
 from pathlib import Path
 import pandas as pd
 import json
 from jsonschema import validate, ValidationError
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 import logging
-from fhir import DiagnosticsService, TerminologyService
+from fhirclient import client
+from pipeline_pseudonymised import run_pseudonymised_pipeline
+from pipeline_refined import run as run_refined_pipeline
+from pipeline_derived import run_derived_pipeline
+from typing import Optional
 
 logging.basicConfig(
     filename='logs/ingestion_errors.log',
@@ -13,155 +18,152 @@ logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s'
 )
 
-def read_raw_input(raw_input, schema_path="schema-inbound.json"):
-    patients = []
+# Legacy functions removed - pipeline now uses modular approach with 
+# dedicated pipeline_pseudonymised.py, pipeline_refined.py, and pipeline_derived.py
 
-    schema_path = Path(schema_path)
-    if not schema_path.exists():
-        raise FileNotFoundError(f"Schema file not found: {schema_path}")
+def setup_fhir_client(fhir_base_url=None):
+    """
+    Set up FHIR client for terminology services
+    """
+    if fhir_base_url is None:
+        fhir_base_url = os.getenv("FHIR_BASE_URL", "http://localhost:8080/fhir")
+    
+    settings = {
+        'app_id': 'ldp_pipeline',
+        'api_base': fhir_base_url
+    }
+    
+    return client.FHIRClient(settings=settings)
+
+def setup_database_engine(database_url_env_key: str):
+    """
+    Set up database engines for refined and derived layers
+    """
+    db_url = os.getenv(database_url_env_key)
+    if not db_url:
+        raise EnvironmentError(f"Environment variable {database_url_env_key} must be set.")
+
+    engine = create_engine(db_url)
+
+    return engine
+
+def run(input_file_path: Path, pseudonymised_store: Optional[Path] = None, refined_store: Optional[Engine] = None, derived_store: Optional[Engine] = None, fhir_client: Optional[client.FHIRClient] = None):
+    """
+    Orchestrate the complete data pipeline from raw input to derived analytics
+    
+    Args:
+        input_file_path: Path to raw input JSON file
         
-    with open(schema_path) as f:
-        schema = json.load(f)    
-
-    for idx, patient in enumerate(raw_input):
-        try:
-            validate(instance=patient, schema=schema)
-            patients.append(patient)
-        except ValidationError as e:
-            logging.error(f"Validation error for record {idx}: {e}")  
-
-    return patients
-
-def transform_to_refined_patients(patients):
-    # Read SNOMED codes for height and weight from environment variables
-    SNOMED_BODY_HEIGHT = os.getenv("SNOMED_BODY_HEIGHT")
-    SNOMED_BODY_WEIGHT = os.getenv("SNOMED_BODY_WEIGHT")
-
-    if not SNOMED_BODY_HEIGHT or not SNOMED_BODY_WEIGHT:
-        raise EnvironmentError("Environment variables SNOMED_BODY_HEIGHT and SNOMED_BODY_WEIGHT must be set.")    
-
-    output_rows = []
-    for patient in patients:
-        height_cm = None
-        weight_kg = None
-        dob = patient.get("dob")
-        patient_id = patient.get("patient_id")
-
-        for obs in patient.get("observations", []):
-            if obs.get("type_code_system") == "http://snomed.info/sct":
-                if obs.get("type") == SNOMED_BODY_HEIGHT:
-                    height_cm = obs.get("value")
-                elif obs.get("type") == SNOMED_BODY_WEIGHT:
-                    weight_kg = obs.get("value")
-
-        bmi = None
-        if height_cm and weight_kg:
-            bmi = weight_kg / ((height_cm / 100) ** 2)
-
-        output_rows.append({
-            "patient_id": patient_id,
-            "dob": pd.to_datetime(dob).date() if dob else None,
-            "height_cm": height_cm,
-            "weight_kg": weight_kg,
-            "bmi": bmi
-        })
-
-    return pd.DataFrame(output_rows)
-
-def write_raw_patients(raw_patients, path="datalake/raw_patients.parquet"):
-    # Flatten each patient dict to a row for storage
-    df = pd.json_normalize(raw_patients)
-    df.to_parquet(path, index=False)
-    # Alternatively, for JSON:
-    # df.to_json("datalake/raw_patients.json", orient="records", lines=True)
-
-def load_raw_patients_from_datalake(path="datalake/raw_patients.parquet"):
-    df = pd.read_parquet(path)
-    return df.to_dict(orient="records") 
-
-def map_to_snomed(type_code, type_code_system):
+    Returns:
+        dict: Summary of pipeline execution with storage locations
     """
-    Use ConceptMap to map input code/system to SNOMED-CT code.
-    Ensures the resulting code system is SNOMED-CT.
-    """
-    snomed_coding = TerminologyService.translate(code=type_code, system=type_code_system)
-    if snomed_coding and snomed_coding.system == "http://snomed.info/sct":
-        return snomed_coding
-    else:
-        logging.warning(f"ConceptMap translation did not return SNOMED-CT code for {type_code} ({type_code_system}).")
-        return None  
+    from datetime import datetime
     
-def convert_value_to_standard_unit(value, input_unit, standard_unit):
-    """
-    Convert value from input_unit to standard_unit.
-    For demo, assume units are compatible and conversion is 1:1.
-    Extend with actual conversion logic as needed.
-    """
-    # TODO: Implement real unit conversion logic
-    return value    
-
-def standardise_observation(obs):
-    snomed_code = map_to_snomed(obs["type"], obs["type_code_system"])
-    if not snomed_code: 
-        logging.warning(f"Could not map observation type '{obs['type']}' ({obs['type_code_system']}) to SNOMED-CT.")
-        return None
-
-    if not snomed_code.code:
-        logging.warning(f"Mapped SNOMED-CT coding has no 'code' property: {snomed_code}")
-        return None
+    # Get configuration from environment variables
+    if not pseudonymised_store:
+        pseudonymised_store = Path(os.getenv("PSEUDONYMISED_STORE_PATH", "pseudonymised"))
     
-    obs_def = DiagnosticsService.get_observation_definition(snomed_code.code)
-    if not obs_def or not obs_def.quantitativeDetails or not obs_def.quantitativeDetails.permittedUnits:
-        logging.warning(f"No valid ObservationDefinition or permitted units found for SNOMED-CT code '{snomed_code}'.")
-        return None
+    # Set up infrastructure
+    if not fhir_client:
+        fhir_client = setup_fhir_client()
 
-    standard_unit = obs_def.quantitativeDetails.permittedUnits[0].code
-    standard_value = convert_value_to_standard_unit(obs["value"], obs["unit"], standard_unit)
+    if not refined_store:
+        refined_store = setup_database_engine("REFINED_DATABASE_URL")
 
-    # Create a new standardised observation dict
-    standardised_obs = {
-        "type": snomed_code.code,  # original type
-        "type_code_system": snomed_code.system,  # should be SNOMED-CT
-        "value": standard_value,
-        "unit": standard_unit,
-        "observation_time": obs["observation_time"]
+    if not derived_store:
+        derived_store = setup_database_engine("DERIVED_DATABASE_URL")
+    
+    print(f"Starting pipeline execution...")
+    print(f"Input: {input_file_path}")
+    print(f"Pseudonymised store: {pseudonymised_store}")
+    
+    # Stage 1: Pseudonymised Pipeline
+    print("\n=== Stage 1: Pseudonymised Pipeline ===")
+    pseudonymised_store_latest = run_pseudonymised_pipeline(
+        input_path=input_file_path,
+        pseudonymised_store=pseudonymised_store
+    )
+    print(f"Pseudonymised data written to:")
+    print(f"  Raw: {pseudonymised_store_latest}/raw/patients.json")
+    print(f"  Calculated: {pseudonymised_store_latest}/calculated/patients.json")
+    
+    # Stage 2: Refined Pipeline  
+    print("\n=== Stage 2: Refined Pipeline ===")
+    # Use the directory containing both raw and calculated data
+    refined_store = run_refined_pipeline(
+        pseudonymised_store=str(pseudonymised_store_latest),
+        refined_store=refined_store,
+        fhir_client=fhir_client
+    )
+    print(f"Refined data written to database: {refined_store.url}")
+    
+    # Stage 3: Derived Pipeline
+    print("\n=== Stage 3: Derived Pipeline ===") 
+    # Use current time as changed_since to process all data
+    changed_since = datetime.min  # Process all data
+    run_derived_pipeline(
+        changed_since=changed_since,
+        refined_store=refined_store,
+        derived_store=derived_store,
+        fhir_client=fhir_client
+    )
+    print(f"Derived data written to database: {derived_store.url}")
+
+    print("\n=== Pipeline Complete ===")
+    
+    return {
+        "pseudonymised": {
+            "raw": f"{pseudonymised_store_latest}/raw/patients.json",
+            "calculated": f"{pseudonymised_store_latest}/calculated/patients.json"
+        },
+        "refined_engine_url": str(refined_store.url),
+        "derived_engine_url": str(derived_store.url),
+        "execution_time": datetime.now().isoformat()
     }
 
-    return standardised_obs
-
-def standardise_patient_observations(raw_patients):
-    enriched_patients = []
-    for patient in raw_patients:
-        # Copy patient to avoid mutating input
-        patient_copy = dict(patient)
-        patient_copy["observations"] = list(patient.get("observations", []))  # ensure it's a list
-        for obs in patient.get("observations", []):
-            standardised_obs = standardise_observation(obs)
-            if standardised_obs:
-                patient_copy["observations"].append(standardised_obs)
-        enriched_patients.append(patient_copy)
-    return enriched_patients
-
-def write_refined_patients(output_df):
+def main():
     """
-    Store the output DataFrame to a relational database table.
+    Command line entry point
     """
-    db_url = os.getenv("DATABASE_URL")
+    parser = argparse.ArgumentParser(
+        description="Run the complete demonstrator data pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Example:
+  python pipeline.py data/raw_stored.json
+        """
+    )
+    
+    parser.add_argument(
+        "input_file", 
+        help="Path to input JSON file containing raw patient data"
+    )
+    
+    args = parser.parse_args()
+    
+    # Validate input file exists
+    if not Path(args.input_file).exists():
+        print(f"Error: Input file not found: {args.input_file}")
+        return 1
+    
+    try:
+        # Run the pipeline with internally determined settings
+        result = run(input_file_path=args.input_file)
+        
+        print(f"\nPipeline execution summary:")
+        print(f"Execution time: {result['execution_time']}")
+        print(f"Pseudonymised raw: {result['pseudonymised']['raw']}")
+        print(f"Pseudonymised calculated: {result['pseudonymised']['calculated']}")
+        print(f"Refined database: {result['refined_engine_url']}")
+        print(f"Derived database: {result['derived_engine_url']}")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"Pipeline execution failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
-    if db_url is None:
-      raise EnvironmentError("Environment variable DATABASE_URL must be set.")   
-    table_name = "patient"  
-    engine = create_engine(db_url)
-    output_df.to_sql(table_name, engine, if_exists="append", index=False)
-
-def run(input_json):
-    """
-    Runs the pipeline
-    """    
-    raw_patients = read_raw_input(input_json)
-    write_raw_patients(raw_patients) 
-
-    enriched_patients = standardise_patient_observations(raw_patients)
-
-    output_df = transform_to_refined_patients(enriched_patients)
-    write_refined_patients(output_df)
+if __name__ == "__main__":
+    exit(main())

@@ -1,12 +1,14 @@
 import os
-from typing import Optional
+from typing import Optional, List, Dict
 import pandas as pd
 from sqlalchemy import create_engine
 import logging
 from fhirclient import client
 from fhir.diagnostic_service import DiagnosticsService
 from fhir.terminology_service import TerminologyService
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Engine
+import json
+from pathlib import Path
 
 logging.basicConfig(
     filename='logs/pipeline_refined_errors.log',
@@ -85,19 +87,10 @@ def standardise_patient_observations(raw_patients, fhir_client: Optional[client.
         enriched_patients.append(patient_copy)
     return enriched_patients
 
-def write_refined_patients(output_df, engine=None):
+def write_refined_patients(output_df, engine: Engine):    
     """
     Store the output DataFrame to a relational database table.
     """
-    if engine is None:
-        db_url = os.getenv("DATABASE_URL")
-        if not db_url:
-            raise EnvironmentError("Environment variable DATABASE_URL must be set.")
-
-        engine = create_engine(db_url)
-
-    print(f"[DEBUG] Writing refined patients to database using engine: {engine} with DATABASE_URL={os.getenv('DATABASE_URL')}")
-
     try:
         output_df.to_sql("patient", engine, if_exists="append", index=False, schema="refined")
     except Exception as e:
@@ -151,13 +144,65 @@ def transform_to_refined_patients(patients):
 
     return pd.DataFrame(output_rows)    
 
-def read_raw_patients(path="datalake/raw_patients.parquet"):
-    df = pd.read_parquet(path)
-    return df.to_dict(orient="records") 
+def read_pseudonymised_patients(pseudonymised_store) -> List[Dict]:
+    """
+    Read patients from pseudonymised storage raw subfolder
+    
+    Args:
+        pseudonymised_store: Path to pseudonymised storage directory or direct file path
+                           If directory, reads from raw/patients.json
+                           If file path, reads directly
+    Returns:
+        List of patient dictionaries
+    """
+    if isinstance(pseudonymised_store, str):
+        store_path = Path(pseudonymised_store)
+        
+        # If it's a directory, look for raw/patients.json
+        if store_path.is_dir():
+            raw_file = store_path / "raw" / "patients.json"
+            if not raw_file.exists():
+                raise FileNotFoundError(f"Raw patients file not found: {raw_file}")
+            with open(raw_file, 'r') as f:
+                return json.load(f)   
+        else:
+            raise FileNotFoundError(f"Pseudonymised store path does not exist: {pseudonymised_store}")    
+    else:
+        logging.error("pseudonymised_store must be a file path string.")
+        raise ValueError("pseudonymised_store must be a file path string.")
+    
+def _init_refined_store() -> Engine:
+    db_url = os.getenv("REFINED_DATABASE_URL")
+    if not db_url:
+        raise EnvironmentError("Environment variable REFINED_DATABASE_URL must be set.")
+    return create_engine(db_url)
 
 def run_refined_pipeline(raw_patients, refined_store=None, fhir_client: Optional[client.FHIRClient] = None):
     # TODO - this first step now needs to read the unprocseed records from the pseudonymised layer - raw and enriched
     #raw_patients = read_raw_patients()
+    if refined_store is None:
+        refined_store = _init_refined_store()
+
     enriched_patients = standardise_patient_observations(raw_patients, fhir_client)
     output_df = transform_to_refined_patients(enriched_patients)
     write_refined_patients(output_df, refined_store)
+
+def run(pseudonymised_store, refined_store: Optional[Engine] = None, fhir_client: Optional[client.FHIRClient] = None) -> Engine:
+    """
+    Read from pseudonymised storage, transform, and write to refined storage
+    
+    Args:
+        pseudonymised_store: SQLAlchemy engine or file path where pseudonymised data is stored
+        refined_store: SQLAlchemy engine for refined layer (defaults to DATABASE_URL)  
+        fhir_client: Optional FHIR client for terminology services
+    """
+    if refined_store is None:
+        refined_store = _init_refined_store()
+
+    # Read from pseudonymised layer
+    pseudonymised_patients = read_pseudonymised_patients(pseudonymised_store)
+    enriched_patients = standardise_patient_observations(pseudonymised_patients, fhir_client)
+    output_df = transform_to_refined_patients(enriched_patients)
+    write_refined_patients(output_df, refined_store) 
+
+    return refined_store  # Return the refined storage location for chaining   

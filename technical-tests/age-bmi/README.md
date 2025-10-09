@@ -1,308 +1,331 @@
-# Data Pipeline Architecture Principles and Options
+# Age-BMI Data Pipeline - Technical Proof of Concept
 
-This document outlines the principles, design choices, and migration approach for our data pipeline. It is intended for data engineers contributing to or extending this project.
+This project demonstrates and de-risks key architectural decisions for the Somerset LDP's data platform. Specifically, it validates:
 
-# Layered Data Architecture
+**Data Flow Architecture**: How to structure data pipelines with clear separation of concerns - each processing stage has a single responsibility and well-defined boundaries. The pipeline demonstrates why layered data architecture enables independent scaling, testing, and technology choices while ensuring PII protection from the outset.
 
-Our architecture is designed around **progressive refinement of data** with each layer having a **single, clear purpose**.  
-This avoids muddling responsibilities and ensures transformations are both explainable and auditable.  
+**Clinical Classification Integration**: How BMI categorisation uses evidence-based clinical guidelines rather than arbitrary thresholds - implementing WHO adult BMI categories with ethnicity-specific adjustments and UK90 pediatric centiles through FHIR ObservationDefinitions and the rcpchgrowth library.
 
----
+**Healthcare Standards Integration**: How FHIR terminology servers provide authoritative clinical code validation, reference ranges, and unit conversions, ensuring analytical outputs meet clinical interoperability standards without custom terminology management.
 
-## 1. Pseudonymised Layer
-- **Purpose**: A safe, minimal representation of the raw input feeds.  
-- **Characteristics**:
-  - **Immediate pseudonymisation**: PII is stripped or replaced at ingestion.  
-  - **No interpretation**: We do not resolve conflicts or apply business rules.  
-  - **No canonicalisation**: Data remains in feed-specific structures.  
-  - **Lightweight enrichment only when unavoidable**: e.g., computing age at ingestion when the input feed only provides DOB.  
-  - **Two types of outputs**:
-    - *Raw-like pseudonymised*: structurally close to the source.  
-    - *Calculated pseudonymised*: derived values from raw PII (e.g., age), computed before PII is discarded.  
+## Architecture Overview
 
-👉 Think of this layer as **“dumb but safe.”**  
+Our architecture is built on **progressive refinement of data** with each layer having a **single, clear purpose**. This separation of concerns ensures transformations are explainable, auditable, and maintainable.
 
----
-
-## 2. Refined Layer
-- **Purpose**: The source of truth for **clean, consistent, canonical data models**.  
-- **Characteristics**:
-  - **Conflict resolution**: e.g., when multiple feeds provide height, weight, or demographic info, this is where we decide the current “truth.”  
-  - **Canonical models**: patient, encounter, observation, etc., structured to reflect business semantics rather than feed idiosyncrasies.  
-  - **Consistency rules**: enforce data quality, type alignment, reference integrity.  
-  - **Feed agnostic**: once in refined, the data is no longer tied to the quirks of a source system.  
-
-👉 This is the **business-ready foundation** for analytics and downstream processing.  
-
----
-
-## 3. Derived Layer
-- **Purpose**: Data optimised for **consumption and insight**.  
-- **Characteristics**:
-  - **Transformations for analytics**: aggregations, KPIs, trends.  
-  - **Denormalisation for performance**: e.g., star schemas, materialised views.  
-  - **Dashboards, reporting, ML features**: all consume from here.  
-
-👉 This is the **“answer layer”** — where data is shaped to meet specific analytical or product needs.  
-
----
-
-## Guiding Principles
-- **Each layer has one job**:
-  - *Pseudonymised*: strip PII, make data safe.  
-  - *Refined*: resolve, standardise, canonicalise.  
-  - *Derived*: optimise for consumption.  
-- **Never re-identify**: once pseudonymised, data is never re-linked to PII.  
-- **Progressive enrichment**: only done at the right layer, avoiding premature interpretation.  
-- **Auditability**: every field can be traced back to source feeds via the pseudonymised layer.  
-
-
-## Pseudonymised Layer
-
-The **Pseudonymised Layer** is the first stage of our data pipeline, designed to handle personally identifiable information (PII) safely while supporting initial enrichment and transformation. Data in this layer is **pseudonymised before it is persisted**, ensuring no raw PII is stored.
-
-### Layer Purpose
-
-- **Redact PII** from incoming raw feeds.
-- Perform minimal enrichment or calculated values that require PII as input.
-- Maintain a feed- and date-oriented structure for easy partitioning and incremental processing.
-- Separate data that is near-raw from data that has already been derived or calculated from raw input.
-
-### Storage Structure
-
-Data is stored in an **object storage (e.g., S3, GCS, or Azure Blob)** using a feed-first hierarchy. Each feed has its own top-level directory, partitioned by date, with separate subdirectories for near-raw pseudonymised data and calculated/derived data:
-
+```mermaid
+flowchart LR
+    A["🔴 Raw Data<br/>• PII mixed<br/>• Untrusted<br/>• Variable quality<br/>• Unsafe"] 
+    B["🟡 Pseudonymised<br/>• PII removed<br/>• Feed-native<br/>• Minimal processing<br/>• Safe but unrefined"]
+    C["🟢 Refined<br/>• Canonical<br/>• Validated<br/>• Conflict resolved<br/>• Business entities"]
+    D["🔵 Derived<br/>• Optimized<br/>• Aggregated<br/>• Performant<br/>• Consumer ready"]
+    
+    A -->|"Never persisted"| B
+    B -->|"Immediate PII removal"| C
+    C -->|"Source of truth"| D
+    D -->|"Applications consume"|E[Analytics<br/>Reports<br/>ML Models<br/>Dashboards]
+    
+    style A fill:#ffebee
+    style B fill:#fff8e1
+    style C fill:#e8f5e8
+    style D fill:#e3f2fd
+    style E fill:#f8f9fa,stroke:#6c757d,stroke-dasharray: 5 5
 ```
-### Pseudonymised Layer Directory Structure
 
+**Key Principles:**
+- **Left-to-right flow**: Data becomes progressively safer, cleaner, and more usable
+- **Single responsibility**: Each layer has one clear purpose and transformation type
+- **Immutable progression**: Upstream layers are never modified by downstream processes
+- **Quality gates**: Each transition includes validation and quality checks
+
+---
+
+## Data Architecture Layers
+
+### 1. Pseudonymised Layer
+**Purpose**: A safe, minimal representation of raw input feeds with immediate PII protection.
+
+**Characteristics**:
+- **Immediate pseudonymisation**: PII is stripped or hashed at ingestion - never persisted in raw form
+- **No interpretation**: Data conflicts and business rules are not resolved at this stage  
+- **Feed-specific structure**: Data retains original feed formats for auditability
+- **Minimal enrichment**: Only computations requiring PII input (e.g., age calculation from DOB)
+- **Two output types**:
+  - *Raw-like pseudonymised*: Structurally close to source but PII-safe
+  - *Calculated pseudonymised*: Derived values computed before PII disposal
+
+**Storage**: Object store (S3/GCS/Azure) with feed-first hierarchy:
+```
 pseudonymised/
-├── feed_a/
-│   └── YYYY/
-│       └── MM/
-│           └── DD/
-│               ├── raw/          # Pseudonymised, near-raw data
-│               └── calculated/   # Derived/enriched data from raw input
-├── feed_b/
-│   └── YYYY/
-│       └── MM/
-│           └── DD/
-│               ├── raw/
-│               └── calculated/
-
+├── feed_a/YYYY/MM/DD/
+│   ├── raw/          # Near-original structure, PII removed
+│   └── calculated/   # Age, derived demographics
+└── feed_b/YYYY/MM/DD/
+    ├── raw/          # Near-original structure, PII removed
+    └── calculated/   # Age, derived demographics
 ```
 
+👉 **Think of this layer as "dumb but safe"** - minimal processing, maximum safety.
 
-- **Feed**: Top-level directory representing the source of the data.
-- **Date partitioning**: Organises data by ingestion or snapshot date, supporting incremental processing.
-- **`raw/`**: Stores data closely resembling the original input, but with all PII pseudonymised.
-- **`calculated/`**: Stores data derived from the raw input (e.g., initial enrichments, computed metrics).
+### 2. Refined Layer  
+**Purpose**: The source of truth for clean, consistent, canonical data models.
 
-### Notes
+**Characteristics**:
+- **Conflict resolution**: When multiple feeds provide conflicting data, business rules determine truth
+- **Canonical models**: Standard patient, encounter, observation entities reflecting business semantics
+- **Data quality enforcement**: Type validation, reference integrity, consistency rules
+- **Feed-agnostic**: Data structure no longer tied to source system quirks
+- **FHIR integration**: Code system validation and terminology mapping
 
-- This layer is **transient in nature**; it is not intended for canonical modeling or conflict resolution. That is handled in the **Refined Layer**.
-- Pipelines operating on this layer are split into two sub-pipelines:
-  - `pipeline_pseudonymised_raw.py` → outputs near-raw pseudonymised data
-  - `pipeline_pseudonymised_enriched.py` → outputs calculated/enriched data derived from raw input
-- Keeping raw-like and calculated data separate simplifies processing and ensures clarity in downstream transformations.
+**Storage**: Relational database with normalized schema - see [`create_schema_refined.sql`](data/init/ddl/create_schema_refined.sql) for complete schema definition.
 
-
-## Pipeline Layers
-
-### 1. Pseudonymised Layer (entry point)
-- **Script**: `pipeline_pseudonymised.py`
-- **Role**: Orchestrates ingestion of incoming raw data.
-- Immediately triggers sub-pipelines to handle pseudonymisation and enrichment.
-
-#### Sub-pipelines
-- **`pipeline_pseudonymised_raw.py`**  
-  - Strips or replaces all PII fields.  
-  - Outputs data that is *structurally close to the raw feed* but pseudonymised.  
-  - This dataset acts as the safe baseline for downstream use.
-
-- **`pipeline_pseudonymised_enriched.py`**  
-  - Runs enrichments that **depend on PII** at calculation time (e.g., age at ingestion).  
-  - Ensures PII is pseudonymised *before persistence*.  
-  - Outputs new pseudonymised data types that complement the pseudonymised raw.
-
----
-
-### 2. Refined Layer
-- **Script**: `pipeline_refined.py`
-- **Role**:  
-  - Consumes outputs of the pseudonymised raw and pseudonymised new data.  
-  - Standardises formats, applies harmonisation, and builds relational models.  
-  - Designed for data engineers and analysts to work with directly.  
-
----
+👉 **This is the business-ready foundation** for all downstream analytics and processing.
 
 ### 3. Derived Layer
-- **Script**: `pipeline_derived.py`
-- **Role**:  
-  - Consumes from the refined layer.  
-  - Produces analytics-ready datasets and aggregates.  
-  - Optimised for reporting, dashboards, and machine learning features.
+**Purpose**: Data optimized for consumption, reporting, and machine learning.
+
+**Characteristics**:
+- **Analytics transformations**: BMI calculations, risk scores, trend analysis
+- **Performance optimization**: Denormalized views, pre-computed aggregates
+- **Consumer-specific formats**: Different analytical consumers need different data shapes for example:
+  - *Star schemas* for BI tools (Tableau, Power BI) - fact tables with dimensional lookups
+  - *Wide tables* for reporting - denormalized views with all metrics in one row
+  - *Feature vectors* for ML - numeric arrays optimized for model training
+  - *Time series* for trend analysis - indexed by date/time for efficient querying
+  - *Aggregate tables* for dashboards - pre-calculated summaries by demographics
+- **Incremental updates**: Only recalculate when upstream data changes
+
+**Storage**: Multi-modal storage optimized for different analytical needs:
+- *Relational tables* for traditional BI and reporting (see [`create_schema_derived.sql`](data/init/ddl/create_schema_derived.sql))
+- *Columnar formats* (Parquet, Delta) for ML feature stores and large-scale analytics
+- *Time-series databases* for trend analysis and monitoring dashboards
+- *Document stores* for flexible analytical metadata and complex nested structures
+
+👉 **This is the "answer layer"** where data is shaped for specific analytical needs.
 
 ---
 
-## Principles
+## Pipeline Implementation
 
-- **Separation of Concerns**: Each pipeline handles only its own transformations.  
-- **Immediate Pseudonymisation**: PII never leaves the raw entry point unprocessed.  
-- **Modular Orchestration**: `pipeline_raw.py` coordinates sub-pipelines, keeping logic isolated.  
-- **Future-Proofing**: Any stage can be reimplemented (e.g., scaling out with Spark) without affecting the others.  
-- **Auditability**: Each layer is a checkpoint, supporting lineage and troubleshooting.  
+The pipeline implementation follows the **single responsibility principle** - each pipeline script is dedicated to populating one specific storage layer. This modular approach ensures that:
 
+- **Clear boundaries**: Each pipeline has a well-defined input source and output destination
+- **Independent execution**: Pipelines can be run separately for testing, debugging, or selective processing
+- **Failure isolation**: Issues in one layer don't cascade to others - failed pipelines can be re-run independently  
+- **Scalable orchestration**: Each pipeline can be scheduled, monitored, and scaled based on its specific requirements
+- **Technology flexibility**: Different layers can use different processing technologies without affecting others
 
-## 1. Separation of Data Layers
+The current implementation provides three discrete pipelines, each responsible for a single architectural layer:
 
-We organize data into three distinct layers:
+### 1. Pseudonymised Layer (`pipeline_pseudonymised.py`)
+- **Role**: Entry point orchestrating raw data ingestion
+- **Sub-pipelines**:
+  - `pipeline_pseudonymised_raw.py`: PII removal while preserving structure
+  - `pipeline_pseudonymised_enriched.py`: PII-dependent calculations (age from DOB)
 
-| Layer   | Purpose | Storage |
-|---------|---------|---------|
-| **Raw** | Store incoming data in its original form; immutable | Parquet / Object store |
-| **Refined** | Transform and standardize data for analysis; canonical model | Relational DB (Postgres) |
-| **Derived** | Compute metrics, aggregates, and analytics-ready datasets | Relational DB (Postgres) |
+### 2. Refined Layer (`pipeline_refined.py`)  
+- **Role**: Canonicalization and standardization
+- **Features**:
+  - FHIR terminology server integration for code validation
+  - Data quality validation and conflict resolution
+  - Canonical model construction
 
-**Principles:**
-- Keep layers separate to control transformations and maintain lineage.
-- Compute-intensive transformations are isolated per layer, allowing independent scaling.
-- Data ownership is explicit: only one process should update a given dataset.
-
-**Current Choice:**  
-- Raw: Parquet in a data lake  
-- Refined & Derived: Postgres schemas (separate) in the same database  
-
-**Flexibility for Future:**  
-- We can move layers to separate databases, distributed systems, or cloud-native warehouses as required.
-
----
-
-## 2. Triggering Pipeline Jobs
-
-We considered two main options:
-
-1. **Scheduled Jobs (time-based)**  
-   - Simple, predictable, easy to reason about.  
-   - Good for batch-oriented pipelines where data arrives periodically.  
-
-2. **Event-Driven Jobs (data-change triggered)**  
-   - Reactive, low-latency.  
-   - Risk of cascade cycles if multiple jobs update the same derived data.  
-
-**Current Choice:**  
-- Scheduled jobs orchestrated via a DAG-based system (Airflow, Prefect, or Dagster) for predictable execution.  
-
-**Future Flexibility:**  
-- Event-driven triggers can be added later for low-latency scenarios, managed under the same orchestration to prevent cycles.
+### 3. Derived Layer (`pipeline_derived.py`)
+- **Role**: Analytics preparation  
+- **Features**:
+  - BMI calculation and weight classification
+  - Age-appropriate BMI thresholds (adult vs pediatric)
+  - Ethnicity-specific BMI categories
+  - Population-level aggregations
 
 ---
 
-## 3. Managing Updates to Derived Data
+## Clinical Standards Integration
 
-**Challenge:** Prevent multiple pipelines from updating the same derived datasets and avoid unnecessary recomputation.
+Healthcare data pipelines must ensure clinical accuracy and interoperability by integrating with established healthcare standards and terminologies. **Clinical Standards Integration** means embedding validated healthcare coding systems, reference ranges, and classification logic directly into the data processing workflows - not as an afterthought, but as a core architectural component.
 
-**Principles:**
-- Each derived table has a single “owner” pipeline.  
-- Idempotent pipeline design ensures re-runs do not corrupt data.  
-- Metadata tracking defines which job produces each derived table.  
+This integration serves two critical functions: **terminology services** provide the infrastructure for code validation and mapping between healthcare code systems, while **clinical classification logic** ensures that analytical outputs (like BMI categories) follow evidence-based clinical guidelines rather than arbitrary technical thresholds.
 
-**Implementation Strategy:**  
-- Recompute metrics incrementally: only recalc BMI or weight category when height/weight changes.  
-- Record “latest snapshot” in derived tables, avoiding full recomputation while supporting historical analysis later.
+### FHIR Server
+The FHIR server functions as a **specialized reference data layer for healthcare** - providing authoritative definitions, mappings, and validation rules for clinical codes and concepts. Rather than inventing custom reference data management, we chose FHIR because it's the established international standard with existing tooling, comprehensive code system support, well modelled healthcare concepts and built-in interoperability with other healthcare systems.
 
-**Future Flexibility:**  
-- A versioned model can be layered in to track historical records and maintain lineage without redesigning the pipeline.
+The pipeline integrates with a HAPI FHIR server to ensure clinical data accuracy:
+
+- **Code System Validation**: Verify SNOMED CT, LOINC, and other healthcare codes
+- **Terminology Mapping**: Translate between code systems (e.g., LOINC → SNOMED)
+- **Reference range definition**: Determine if a value is within a given reference range e.g. overweight BMI category
+- **Observation unit of measure definition**: Define the units that a given Observation should be in. This is used to both validate observation data and to facilitate unit conversion to the LDP's canonical units in the refined layer
+
+### BMI Classification Logic
+While the FHIR server provides the infrastructure for code validation and mapping, **BMI Classification Logic** implements the clinical decision-making rules that transform raw measurements into meaningful health assessments. This logic embeds clinical guidelines directly into the data pipeline, ensuring that BMI categories reflect current medical practice rather than arbitrary numerical ranges.
+
+The classification system leverages FHIR-defined ValueSets and ConceptMaps to maintain consistency with international clinical standards, while accommodating population-specific variations in health risk thresholds.
+
+Implements clinically appropriate BMI categories based on:
+
+- **Age Groups**: Adult (≥18 years) vs pediatric classifications
+- **Ethnicity**: Different BMI thresholds for different populations  
+- **Clinical vs Surveillance**: Different centile thresholds for screening vs clinical intervention
+- **Growth Charts**: UK90 charts for pediatric BMI centiles using [`rcpchgrowth`](https://growth.rcpch.ac.uk/developer/rcpchgrowth/) library
+
+**Classification Resources**:
+- [`adult-who-bmi-clinical-classification`](data/fhir-store/resources/observationdefinition/adult_who_bmi_clinical_classification.json) - Adult BMI categories by ethnicity
+- [`child-uk90-bmi-clinical-classification`](data/fhir-store/resources/observationdefinition/child_uk90_bmi_clinical_classification.json) - Pediatric BMI centiles (clinical thresholds)  
+- [`child-uk90-bmi-surveillance-classification`](data/fhir-store/resources/observationdefinition/child_uk90_bmi_surveillance_classification.json) - Pediatric BMI centiles (surveillance thresholds)
 
 ---
 
-## 4. Tracking History and Lineage
+## Technology Stack
 
-**Principles:**
-- Refined layer contains canonical, standardized data.  
-- Derived layer can contain snapshots or incremental calculations.  
-- Audit trails and lineage metadata ensure analysts can understand the origin and transformation of any value.
+### Core Components
+- **Language**: [Python 3.12+](https://www.python.org/)
+- **Database**: [PostgreSQL](https://www.postgresql.org/) (refined/derived layers)  
+- **Object Storage**: File system (future: [AWS S3](https://aws.amazon.com/s3/)/[Google Cloud Storage](https://cloud.google.com/storage)/[Azure Blob Storage](https://azure.microsoft.com/en-us/products/storage/blobs))
+- **FHIR Server**: [HAPI FHIR](https://hapifhir.io/) 
+- **Testing**: [pytest](https://pytest.org/) with [Docker testcontainers](https://testcontainers.com/)
 
-**Migration Approach:**
-1. Start with **latest snapshot** model for simplicity.  
-2. Introduce change-tracking or versioned tables if historical analysis requirements increase.  
-3. Maintain separation of layers to allow independent scaling and evolution.
+### Key Libraries
+- **Healthcare**: [`fhirclient`](https://github.com/smart-on-fhir/client-py), [`rcpchgrowth`](https://github.com/rcpch/rcpchgrowth) (UK growth charts)
+- **Data Processing**: [`pandas`](https://pandas.pydata.org/), [`sqlalchemy`](https://www.sqlalchemy.org/)  
+- **Testing Infrastructure**: [`testcontainers`](https://github.com/testcontainers/testcontainers-python) for integration tests
+
+### Development Infrastructure
+- **Containerization**: [Docker Compose](https://docs.docker.com/compose/) for local FHIR server and Postgres server
+- **Testing**: Unit and integration test suites
 
 ---
 
-## 5. Summary of Design Philosophy
+## Current Implementation Status
 
-- **Separation of concerns:** raw, refined, derived layers.  
-- **Explicit ownership:** only one process writes each derived dataset.  
-- **Incremental computation:** reduce recomputation and improve efficiency.  
-- **Orchestration-managed triggers:** prevent cascade cycles and control dependencies.  
-- **Auditability and lineage:** prepare for future data governance requirements.  
-- **Scalability & flexibility:** architecture allows swapping storage technologies or adopting event-driven pipelines in the future without major redesign.
+### ✅ Implemented Features
+- **Three-layer pipeline architecture** with clear separation of concerns
+- **BMI calculation and clinical classification** for adults and children  
+- **FHIR terminology integration** with code validation and mapping
+- **Ethnicity-specific BMI thresholds** following clinical guidelines
+- **Comprehensive test coverage** with Docker-based integration tests
+- **SNOMED CT sex code mapping** for demographic standardization
 
+### 🚧 Proof of Concept Limitations
+This is a **technical demonstration** with several production readiness gaps:
 
-TODO
+- **No production FHIR server**: Uses local HAPI FHIR instance
+- **File-based object storage**: Not using cloud storage services
+- **Single database instance**: No separation of refined/derived databases  
+- **No orchestration**: Manual pipeline execution, no DAG scheduling
+- **Limited security**: No authentication, authorization, or audit logging
+- **No monitoring**: No observability, alerting, or performance metrics
+- **Simplified pseudonymisation**: Basic field removal, not cryptographic hashing
+- **No data lineage**: Missing ability to trace data through the storage layers
+- **No audit trail**: Missing audit of who, what and when
+- **No merging of data**: Updated records, data conflicts and de-duplication are not handled
+- **No pseduonymisation**: Pseudonymisaton is the subject of its own technical test
+- **No PII detection**: before writing to pseudonymised layer at sanity check around the presence of PII would potentially be worthwhile
 
-Move liniege out of observation - experiement with one of the options below
+---
 
-2. Data Lake / File-Based Lineage
+## Future Development Priorities
 
-Raw files stored in a data lake / object store.
+### 1. Production Readiness
+- **Security**: Authentication, authorization, audit trails
+- **Orchestration**: Airflow/Prefect/Dagster for scheduled execution
+- **Monitoring**: Observability, alerting, performance tracking
+- **Scaling**: Separate databases, distributed processing capabilities
+- **Cloud Integration**: S3/GCS storage, managed services
 
-Canonical table stores unique IDs that can be mapped back to files (filename + row ID optional).
+### 2. Data Architecture Evolution  
+- **Lineage Tracking**: Investigate OpenLineage, DataHub, or Apache Atlas
+- **Data Dictionary**: Self-service data discovery and documentation
+- **Lakehouse Architecture**: Explore Delta Lake, Iceberg for unified storage
+- **Stream Processing**: Event-driven pipelines for real-time updates
 
-Optionally, use metadata/catalog tools to track lineage (see below).
+### 3. Healthcare-Specific Features
+- **Advanced Pseudonymisation**: Cryptographic techniques, differential privacy
+- **PII Detection**: Automated identification of personal information
+- **Record Linkage**: Probabilistic matching across data sources  
 
-3. Provenance/Lineage Tools
+### 4. Analytics & Self-Service
+- **Query Interface**: Trino/Presto for SQL-based data exploration
+- **Data Catalog**: Automated metadata management and discovery
+- **ML Pipeline Integration**: Feature stores, model training pipelines
+- **Population Health Analytics**: Cohort analysis, trend identification
 
-Dedicated tools/systems: e.g., OpenLineage, DataHub, Apache Atlas.
+---
 
-Track lineage automatically from ingestion pipelines:
+## Getting Started
 
-Source table/file → transformation → target table/view.
+### Prerequisites
+- Docker and Docker Compose
+- Python 3.12+
+- PostgreSQL client tools
 
-Pros:
+### Quick Start
+1. **Start the infrastructure**:
+   ```bash
+   docker-compose up -d  # FHIR server + PostgreSQL
+   ```
 
-Decouples lineage from schema.
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Supports visual lineage and impact analysis.
+3. **Run the pipeline**:
+   ```bash
+   # Process raw data through all layers
+   python pipeline_refined.py
+   python pipeline_derived.py
+   ```
 
-Handles multiple data sources and transformations elegantly.
+4. **Run tests**:
+   ```bash
+   pytest tests/ -v
+   ```
 
-4. Hybrid
+### Project Structure
+```
+age-bmi/
+├── pipeline_refined.py       # Refined layer pipeline
+├── pipeline_derived.py       # Derived layer pipeline  
+├── pipeline.py               # Legacy pipeline (being replaced)
+├── docker-compose.yml        # FHIR server and Postgres server
+├── calculators/              # BMI calculation logic
+├── fhir/                     # FHIR server integration
+├── data/                     # Data definitions and reference data
+│   ├── fhir-store/           # FHIR resources and terminology
+│   ├── init/                 # Database initialization scripts
+│   └── pseudonymised-store/  # Raw data schema
+├── tests/                    # Unit and integration tests
+│   ├── fixtures/             # Shared test infrastructure
+│   ├── unit/                 # Isolated component tests  
+│   └── integration/          # End-to-end pipeline tests
+└── docker-compose.yml        # Local FHIR server setup
+```
 
-Keep minimal lineage keys in the refined table (e.g., raw_record_id),
+---
 
-Store detailed provenance in a lineage table or catalog.
+## Contributing
 
-## Connect to FHIR terminology server to validate code systems and to perform mappings
-## Connect to a filter which acts as a whitelist, only allowing records to pass through that meet the filter criteria
-## Incorporate lineage. I'd like to be able to explore different options
-## Incorporate Data dictionary to allow people to understand the data model. I'd like to be able to explore different options
-## I'd like to explore different storage options including Lakehouse. I am not sure yet of the best way to store the data (raw, refined, reporting)
-## I'd also like to explore scaling, redundancy and failover
-## Add a Self serve interface with something like Trino so that people with SQL skills can explore the data (this is related to the Data dictionary feature)
-## Add an Audit trail for who is doing what and when
-## Add monitoring and alerting
-## Add a Pseudonymisation step
-## Merging records
-## PII detection before writting to pseudonymised layer
+This proof of concept demonstrates key architectural principles for the LDP's data pipelines. The modular design allows individual components to be enhanced or replaced as requirements evolve.
 
-## Timeout, network error, retry logic
+**Key Design Principles**:
+- **Single Responsibility**: Each layer and pipeline has one clear purpose
+- **Immutable Layers**: Upstream data is never modified by downstream processes  
+- **Clinical Accuracy**: Healthcare standards and terminologies are properly applied
 
-## Tests
-If you like, I can also add a test for aggregating patients into age ranges directly from mock records, so you can verify your age-bracket logic without querying the DB.
+### BMI Classification Naming Conventions
 
-Extend this test file to include an end-to-end test that simulates reading multiple mock records, validating, transforming, and checking calculated BMI, without touching the database. This gives a lightweight pipeline test.
+When contributing new BMI ObservationDefinition resources, please follow the established naming convention to maintain consistency and discoverability:
 
-## Age
-We'll calculate on the fly in the derived layer but this might not be efficient long term
+**Format**: `{population}_{standard}_{metric}_{purpose}_classification.json`
 
-BMI classification maning conventions
+**Components**:
+- **Population**: `adult` | `child` | `pediatric` | `all_ages`
+- **Standard**: `who` | `uk90` | `cdc` | `iotf` | `custom`  
+- **Metric**: `bmi` | `weight` | `height` | etc.
+- **Purpose**: `clinical` | `surveillance` | `research` | `screening`
 
-Format: {population}_{standard}_{metric}_{purpose}_classification.json
+**Examples**:
+- `adult_who_bmi_clinical_classification.json` - WHO adult BMI thresholds for clinical use
+- `child_uk90_bmi_surveillance_classification.json` - UK90 pediatric BMI centiles for population surveillance
+- `adult_custom_bmi_research_classification.json` - Custom BMI categories for research studies
 
-Where:
-
-Population: adult | child | pediatric | all_ages
-Standard: who | uk90 | cdc | iotf | custom
-Metric: bmi | weight | height | etc.
-Purpose: clinical | surveillance | research | screening
+For questions about implementation details or architecture decisions, refer to the comprehensive test suite and inline documentation.

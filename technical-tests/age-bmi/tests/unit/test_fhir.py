@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import patch
 from typing import cast
-from fhir import DiagnosticsService, TerminologyService
+from fhir.diagnostic_service import DiagnosticsService
+from fhir.terminology_service import TerminologyService
 from fhirclient.models.coding import Coding
 from fhirclient.models.observationdefinition import ObservationDefinition
 from fhirclient.models.fhirabstractbase import FHIRValidationError

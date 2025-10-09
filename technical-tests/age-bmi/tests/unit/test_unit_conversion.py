@@ -68,7 +68,7 @@ def test_unit_conversion():
                 pint_input_unit = UNIT_MAPPING.get(input_unit, input_unit)
                 pint_target_unit = UNIT_MAPPING.get(target_unit, target_unit) 
                 
-                quantity = value * ureg(pint_input_unit)
+                quantity = value * ureg(pint_input_unit) # type: ignore
                 converted_quantity = quantity.to(pint_target_unit)
                 converted_value = float(converted_quantity.magnitude)
                 

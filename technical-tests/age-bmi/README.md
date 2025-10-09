@@ -15,7 +15,7 @@ Our architecture is built on **progressive refinement of data** with each layer 
 ```mermaid
 flowchart LR
     A["🔴 Raw Data<br/>• PII mixed<br/>• Untrusted<br/>• Variable quality<br/>• Unsafe"] 
-    B["🟡 Pseudonymised<br/>• PII removed<br/>• Feed-native<br/>• Minimal processing<br/>• Safe but unrefined"]
+    B["🟡 Pseudonymised<br/>• PII removed<br/>• Feed-native<br/>• Minimal processing<br/>• Data added<br/>• Safe but unrefined"]
     C["🟢 Refined<br/>• Canonical<br/>• Validated<br/>• Conflict resolved<br/>• Business entities"]
     D["🔵 Derived<br/>• Optimized<br/>• Aggregated<br/>• Performant<br/>• Consumer ready"]
     

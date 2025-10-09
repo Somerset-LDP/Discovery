@@ -8,7 +8,7 @@
     CREATE TABLE IF NOT EXISTS patient (
         patient_id INT PRIMARY KEY,
         dob DATE NOT NULL,
-        ethnicity_code VARCHAR(50), -- does this need to be more explicit eg indicate that it's snomed
+        ethnicity_code VARCHAR(50), 
         ethnicity_code_system VARCHAR(50),
         height_cm NUMERIC(5,2),
         height_observation_time TIMESTAMP,

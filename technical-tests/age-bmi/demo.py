@@ -26,6 +26,9 @@ import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
 import logging
+import pandas as pd
+from sqlalchemy import create_engine, text
+from tabulate import tabulate
 
 from pipeline import run as run_pipeline
 
@@ -84,7 +87,7 @@ def setup_environment():
     print("\nAll environment variables are properly configured")
     return True
 
-def create_temp_pseudonymised_store():
+def create_pseudonymised_store():
     """
     Create a temporary directory for the pseudonymised store
     
@@ -98,93 +101,137 @@ def create_temp_pseudonymised_store():
     
     # Set environment variable for the pipeline
     os.environ['PSEUDONYMISED_STORE_PATH'] = str(temp_dir)
-    print(f"Set PSEUDONYMISED_STORE_PATH={temp_dir}")
+    #print(f"Set PSEUDONYMISED_STORE_PATH={temp_dir}")
     
     return temp_dir
 
-
-def validate_input_file(input_file_path: Path):
-    """
-    Validate that the input file exists and is readable
-    
-    Args:
-        input_file_path: Path to the input file
-        
-    Returns:
-        bool: True if file is valid, False otherwise
-    """
-    print(f"\n=== Input File Validation ===")
-    
-    if not input_file_path.exists():
-        print(f"Input file not found: {input_file_path}")
-        return False
-    
-    if not input_file_path.is_file():
-        print(f"Input path is not a file: {input_file_path}")
-        return False
-    
-    # Try to read and parse JSON
+def load_and_display_json(file_path: Path, title: str):
+    """Load JSON file and display formatted summary"""
     try:
-        with open(input_file_path, 'r') as f:
+        with open(file_path, 'r') as f:
             data = json.load(f)
         
-        if not isinstance(data, list):
-            print(f"Input file must contain a JSON array of patients")
-            return False
-
-        print(f"Input file is valid JSON with {len(data)} patient records")
-        return True
-        
-    except json.JSONDecodeError as e:
-        print(f"Input file contains invalid JSON: {e}")
-        return False
+        if isinstance(data, list):
+            print(f"{title}: {len(data)} records")
+        else:
+            print(f"{title}: Single record")
+            
     except Exception as e:
-        print(f"Error reading input file: {e}")
-        return False
+        print(f"{title}: Error loading file - {e}")
 
 
-def run_demo_pipeline(input_file_path: Path, temp_store: Path):
-    """
-    Execute the complete pipeline with the given input
-    
-    Args:
-        input_file_path: Path to the input JSON file
-        temp_store: Path to temporary pseudonymised store
+def get_table_count(engine, table_name: str) -> int:
+    """Get record count from database table"""
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+            return result.scalar()
+    except Exception as e:
+        print(f"Error counting records in {table_name}: {e}")
+        return 0
+
+
+def display_table(engine, table_name: str, limit: int = 5):
+    """Execute SQL query and display formatted results"""
+    try:
+        df = pd.read_sql(text(f"SELECT * FROM {table_name} LIMIT {limit}"), engine)
         
-    Returns:
-        dict: Pipeline execution results
-    """
-    print(f"\n=== Pipeline Execution ===")
-    print(f"Input file: {input_file_path}")
-    print(f"Temporary store: {temp_store}")
+        if len(df) > 0:
+            print(f"\nData data from {table_name}:")
+            print(tabulate(df.values.tolist(), headers=df.columns.tolist(), tablefmt='grid', showindex=False))
+        else:
+            print(f"No data found in {table_name}")
+            
+    except Exception as e:
+        print(f"Error displaying {table_name}: {e}")
+
+def display_pseudonymised_data(temp_store: Path):
+    """Show contents of temporary pseudonymised JSON files"""
+    print(f"\n--- Pseudonymised Storage (JSON Files) ---")
+    
+    # Find the date-structured directory (e.g., 2025/10/09/)
+    date_dirs = []
+    for year_dir in temp_store.iterdir():
+        if year_dir.is_dir() and year_dir.name.isdigit():
+            for month_dir in year_dir.iterdir():
+                if month_dir.is_dir() and month_dir.name.isdigit():
+                    for day_dir in month_dir.iterdir():
+                        if day_dir.is_dir() and day_dir.name.isdigit():
+                            date_dirs.append(day_dir)
+    
+    if not date_dirs:
+        print("No date-structured directories found in pseudonymised store")
+        return
+        
+    # Use the first (most recent) date directory
+    date_dir = sorted(date_dirs)[-1]
+    
+    # Raw data
+    raw_file = date_dir / "raw" / "patients.json"
+    if raw_file.exists():
+        load_and_display_json(raw_file, "Raw Patients")
+    else:
+        print("Raw patients file not found")
+
+
+def display_refined_data(db_url: str):
+    """Show contents of refined database tables"""
+    print(f"\n--- Refined Storage (PostgreSQL) ---")
     
     try:
-        # Run the complete pipeline
-        result = run_pipeline(input_file_path=input_file_path)
+        engine = create_engine(db_url)
         
-        print(f"\nPipeline completed successfully!")
-        return result
+        # Patient count
+        patient_count = get_table_count(engine, "refined.patient")
+        print(f"Refined Patients: {patient_count} records")
         
+        # Sample data (first 5 records)
+        if patient_count > 0:
+            display_table(engine, "refined.patient", limit=5)
+            
     except Exception as e:
-        print(f"\nPipeline execution failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+        print(f"Error accessing refined database: {e}")
 
-def print_pipeline_summary(result: dict):
-    """
-    Print a summary of the pipeline execution results
+
+def display_derived_data(db_url: str):
+    """Show contents of derived database tables"""
+    print(f"\n--- Derived Storage (PostgreSQL) ---")
     
-    Args:
-        result: Pipeline execution result dictionary
+    try:
+        engine = create_engine(db_url)
+        
+        # Patient count with BMI calculations
+        patient_count = get_table_count(engine, "derived.patient")
+        print(f"Derived Patients: {patient_count} records")
+        
+        # BMI statistics and sample data
+        if patient_count > 0:
+            display_table(engine, "derived.patient", limit=5)
+            
+    except Exception as e:
+        print(f"Error accessing derived database: {e}")
+
+
+def display_pipeline_data():
     """
-    print(f"\n=== Pipeline Summary ===")
-    print(f"Execution time: {result['execution_time']}")
-    print(f"\nData Locations:")
-    print(f"  Pseudonymised (raw): {result['pseudonymised']['raw']}")
-    print(f"  Pseudonymised (calculated): {result['pseudonymised']['calculated']}")
-    print(f"  Refined database: {result['refined_engine_url']}")
-    print(f"  Derived database: {result['derived_engine_url']}")
+    Display data from all three pipeline storage layers
+    """
+    print(f"\n=== Pipeline Data Contents ===")
+
+    pseudonymised_store_path = os.environ.get('PSEUDONYMISED_STORE_PATH')
+    refined_store_url = os.getenv('REFINED_DATABASE_URL')
+    derived_store_url = os.getenv('DERIVED_DATABASE_URL')
+    if pseudonymised_store_path and refined_store_url and derived_store_url:    
+        # Show pseudonymised data
+        display_pseudonymised_data(Path(pseudonymised_store_path))
+
+        # Show refined data
+        display_refined_data(refined_store_url)
+
+        # Show derived data
+        display_derived_data(derived_store_url)
+    else:
+        print("Cannot display pipeline data: Missing environment variables for storage locations")
 
 
 def main():
@@ -216,7 +263,6 @@ Prerequisites:
     print("=" * 50)
     
     input_file_path = Path(args.input_file)
-    temp_store = None
     
     try:
         # Step 0: Setup logging
@@ -227,18 +273,21 @@ Prerequisites:
             return 1
         
         # Step 2: Validate input file
-        if not validate_input_file(input_file_path):
+        if not input_file_path.exists() or not input_file_path.is_file():
+            print(f"Input file not found or is a directory: {input_file_path}")
             return 1
         
         # Step 3: Create temporary storage
-        temp_store = create_temp_pseudonymised_store()
-        
+        create_pseudonymised_store()
+        #pseudonymised_store_path = Path("/tmp/ldp_demo_5_6qp1zg_pseudonymised/")
+
         # Step 4: Run the pipeline
-        result = run_demo_pipeline(input_file_path, temp_store)
-        
-        # Step 5: Print summary
-        print_pipeline_summary(result)
-        
+        run_pipeline(input_file_path=input_file_path)
+        print(f"\nPipeline completed successfully!")
+
+        # Step 5: Display pipeline data contents
+        display_pipeline_data()
+
         print(f"\nDemo completed successfully!")
         
         return 0

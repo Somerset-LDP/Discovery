@@ -4,7 +4,7 @@ import os
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESSIV
 
-from dev_utils.pseudonymisation.logging_setup import setup_test_logging
+from logging_setup import setup_test_logging
 
 
 @pytest.fixture(scope="module")

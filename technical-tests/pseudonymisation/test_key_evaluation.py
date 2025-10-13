@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCMSIV
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from dev_utils.pseudonymisation.logging_setup import setup_test_logging
+from logging_setup import setup_test_logging
 
 
 @pytest.fixture(scope="module")

@@ -1,8 +1,9 @@
-import pytest
 import logging
+import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCMSIV
+
+from logging_setup import setup_test_logging
 import os
-from dev_utils.pseudonymisation.logging_setup import setup_test_logging
 
 
 @pytest.fixture(scope="module")

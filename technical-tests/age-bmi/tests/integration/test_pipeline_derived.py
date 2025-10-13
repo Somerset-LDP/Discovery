@@ -96,13 +96,52 @@ def load_refined_patients(postgres_db) -> Generator[None, None, None]:
 
     yield  # No return value needed
 
-def test_run_pipeline(postgres_db: Engine, load_refined_patients, fhir_client):
+def test_run_pipeline(postgres_db: Engine, fhir_client):
+    # Clean up any existing data from previous tests
+    with postgres_db.connect() as conn:
+        conn.execute(text("TRUNCATE TABLE derived.patient CASCADE"))
+        conn.execute(text("TRUNCATE TABLE refined.patient CASCADE"))
+        conn.commit()
+    
+    # Insert test refined patient data
+    try:
+        with postgres_db.connect() as conn:
+            conn.execute(text("""
+                INSERT INTO refined.patient (
+                    patient_id, dob, ethnicity_code, ethnicity_code_system,
+                    height_cm, height_observation_time, weight_kg, weight_observation_time,
+                    sex_code, sex_code_system, created_at, updated_at
+                ) VALUES (
+                    :patient_id, :dob, :ethnicity_code, :ethnicity_code_system,
+                    :height_cm, :height_observation_time, :weight_kg, :weight_observation_time,
+                    :sex_code, :sex_code_system, :created_at, :updated_at
+                )
+            """), {
+                "patient_id": valid_refined_patient["patient_id"],
+                "dob": valid_refined_patient["dob"],
+                "ethnicity_code": valid_refined_patient["ethnicity_code"],
+                "ethnicity_code_system": valid_refined_patient["ethnicity_code_system"],
+                "height_cm": valid_refined_patient["height_cm"],
+                "height_observation_time": valid_refined_patient["height_observation_time"],
+                "weight_kg": valid_refined_patient["weight_kg"],
+                "weight_observation_time": valid_refined_patient["weight_observation_time"],
+                "sex_code": valid_refined_patient["sex_code"],
+                "sex_code_system": valid_refined_patient["sex_code_system"],
+                "created_at": datetime.fromisoformat("2025-06-10T09:40:00"),
+                "updated_at": datetime.fromisoformat("2025-06-10T09:40:00")
+            })
+            conn.commit()
+    except Exception as e:
+        print(f"Error inserting refined.patient: {e}")
+        import traceback
+        traceback.print_exc()
+    
     with postgres_db.connect() as conn:
         result = conn.execute(text("SELECT COUNT(*) FROM refined.patient")).scalar_one()
-        assert result == 1, f"Expected 1 patient before insertion, found {result}"
+        assert result == 1, f"Expected 1 patient after setup, found {result}"
         
         result = conn.execute(text("SELECT COUNT(*) FROM derived.patient")).scalar_one()
-        assert result == 0, f"Expected 0 patients before insertion, found {result}" 
+        assert result == 0, f"Expected 0 derived patients before pipeline, found {result}" 
 
         # this date is before the refined patient's updated_at
         changed_since = datetime.fromisoformat("2025-05-10T09:40:00")
@@ -117,9 +156,10 @@ def test_run_pipeline(postgres_db: Engine, load_refined_patients, fhir_client):
 
         assert actual is not None
         assert actual["patient_id"] == valid_refined_patient["patient_id"]
-        assert actual["bmi"] == Decimal("16.89")  
+        assert actual["bmi"] == Decimal("16.89")
         assert abs((datetime.utcnow() - actual["bmi_calculation_time"]).total_seconds()) < 60  # within 60 seconds
-        assert actual["bmi_category"] == "162864001"
+        # BMI 16.89 for an adult (born 1985) should be classified as underweight (< 18.5)
+        assert actual["bmi_category"] == "248342006"  # Underweight - adult classification
         assert actual["bmi_category_system"] == "http://snomed.info/sct"
         assert actual["created_at"] is not None
         assert actual["updated_at"] is not None

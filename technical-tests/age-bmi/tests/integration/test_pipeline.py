@@ -73,7 +73,8 @@ def test_run_pipeline(input_json_file: Path, temp_pseudonymised_dir: Path, postg
     Test the complete pipeline from raw input to derived analytics - happy path.
     """
     # Set up environment variables required by the pipeline
-    os.environ["SNOMED_BODY_HEIGHT"] = "248326004"
+    # These should match the SNOMED codes in the ConceptMap targets
+    os.environ["SNOMED_BODY_HEIGHT"] = "50373000"  # Target SNOMED code for LOINC 8302-2 
     os.environ["SNOMED_BODY_WEIGHT"] = "27113001" 
     
     # Determine expected pseudonymised directory structure

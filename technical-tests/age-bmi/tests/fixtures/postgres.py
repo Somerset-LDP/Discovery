@@ -75,6 +75,15 @@ def postgres_db(docker_network: Network) -> Generator[Engine, None, None]:
             try:
                 yield ldp_engine
             finally:
+                # Clean up tables between tests
+                try:
+                    with ldp_engine.connect() as conn:
+                        conn.execute(text("TRUNCATE TABLE derived.patient CASCADE"))
+                        conn.execute(text("TRUNCATE TABLE refined.patient CASCADE"))
+                        conn.commit()
+                except Exception as cleanup_error:
+                    print(f"Warning: Failed to cleanup tables: {cleanup_error}")
+                
                 ldp_engine.dispose()
                 shutil.rmtree(init_dir, ignore_errors=True)
                 

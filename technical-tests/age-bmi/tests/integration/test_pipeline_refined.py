@@ -67,13 +67,20 @@ valid_refined_patient = {
     }
 
 def test_run_pipeline(postgres_db: Engine, fhir_client: client.FHIRClient):
-    # Set up environment variables for SNOMED codes
-    os.environ["SNOMED_BODY_HEIGHT"] = "248326004"
+    # Set up environment variables for SNOMED codes  
+    # These should match the SNOMED codes in the ConceptMap targets
+    os.environ["SNOMED_BODY_HEIGHT"] = "50373000"  # Target SNOMED code for LOINC 8302-2
     os.environ["SNOMED_BODY_WEIGHT"] = "27113001"
 
+    # Clean up any existing data from previous tests
+    with postgres_db.connect() as conn:
+        conn.execute(text("TRUNCATE TABLE derived.patient CASCADE"))
+        conn.execute(text("TRUNCATE TABLE refined.patient CASCADE")) 
+        conn.commit()
+        
     with postgres_db.connect() as conn:
         result = conn.execute(text("SELECT COUNT(*) FROM refined.patient")).scalar_one()
-        assert result == 0, f"Expected 0 patients before insertion, found {result}"         
+        assert result == 0, f"Expected 0 patients after cleanup, found {result}"         
 
         run_refined_pipeline([valid_raw_patient], postgres_db, fhir_client)
 

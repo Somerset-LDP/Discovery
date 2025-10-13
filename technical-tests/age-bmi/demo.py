@@ -87,6 +87,126 @@ def setup_environment():
     print("\nAll environment variables are properly configured")
     return True
 
+
+def test_database_connectivity():
+    """
+    Test database connections to ensure they're working before starting
+    
+    Returns:
+        bool: True if databases are accessible, False otherwise
+    """
+    print("\n=== Testing Database Connectivity ===")
+    
+    refined_db_url = os.getenv('REFINED_DATABASE_URL')
+    derived_db_url = os.getenv('DERIVED_DATABASE_URL')
+    
+    if not refined_db_url or not derived_db_url:
+        print("❌ Database URLs not configured")
+        return False
+    
+    # Test refined database
+    try:
+        engine = create_engine(refined_db_url)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            print("✅ Refined database connection successful")
+    except Exception as e:
+        print(f"❌ Refined database connection failed: {e}")
+        return False
+    
+    # Test derived database (if different)
+    if derived_db_url != refined_db_url:
+        try:
+            engine = create_engine(derived_db_url)
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+                print("✅ Derived database connection successful")
+        except Exception as e:
+            print(f"❌ Derived database connection failed: {e}")
+            return False
+    else:
+        print("✅ Derived database uses same connection as refined")
+    
+    return True
+
+def cleanup_databases():
+    """
+    Clean up existing data from previous runs to ensure a clean state
+    """
+    print("\n=== Cleaning Up Previous Data ===")
+    
+    refined_db_url = os.getenv('REFINED_DATABASE_URL')
+    derived_db_url = os.getenv('DERIVED_DATABASE_URL')
+    
+    if not refined_db_url or not derived_db_url:
+        print("⚠️  Warning: Database URLs not configured, skipping cleanup")
+        return
+    
+    # Clean refined database
+    try:
+        engine = create_engine(refined_db_url)
+        with engine.connect() as conn:
+            # Check if refined.patient table exists and clean it
+            result = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_schema = 'refined' AND table_name = 'patient'
+                )
+            """))
+            row = result.fetchone()
+            if row and row[0]:
+                conn.execute(text("TRUNCATE TABLE refined.patient CASCADE"))
+                conn.commit()
+                print("✅ Cleaned refined database tables")
+            else:
+                print("ℹ️  Refined patient table doesn't exist yet")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not clean refined database: {e}")
+    
+    # Clean derived database (if different from refined)
+    if derived_db_url != refined_db_url:
+        try:
+            engine = create_engine(derived_db_url)
+            with engine.connect() as conn:
+                # Check if derived.patient table exists and clean it
+                result = conn.execute(text("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM information_schema.tables 
+                        WHERE table_schema = 'derived' AND table_name = 'patient'
+                    )
+                """))
+                row = result.fetchone()
+                if row and row[0]:
+                    conn.execute(text("TRUNCATE TABLE derived.patient CASCADE"))
+                    conn.commit()
+                    print("✅ Cleaned derived database tables")
+                else:
+                    print("ℹ️  Derived patient table doesn't exist yet")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not clean derived database: {e}")
+    else:
+        # Same database, clean derived tables
+        try:
+            engine = create_engine(refined_db_url)
+            with engine.connect() as conn:
+                # Check if derived.patient table exists and clean it
+                result = conn.execute(text("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM information_schema.tables 
+                        WHERE table_schema = 'derived' AND table_name = 'patient'
+                    )
+                """))
+                row = result.fetchone()
+                if row and row[0]:
+                    conn.execute(text("TRUNCATE TABLE derived.patient CASCADE"))
+                    conn.commit()
+                    print("✅ Cleaned derived database tables (same database)")
+                else:
+                    print("ℹ️  Derived patient table doesn't exist yet (same database)")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not clean derived database tables: {e}")
+
+
 def create_pseudonymised_store():
     """
     Create a temporary directory for the pseudonymised store
@@ -277,15 +397,23 @@ Prerequisites:
             print(f"Input file not found or is a directory: {input_file_path}")
             return 1
         
-        # Step 3: Create temporary storage
+        # Step 3: Test database connectivity
+        if not test_database_connectivity():
+            print("Cannot proceed with pipeline - database connectivity issues")
+            return 1
+        
+        # Step 4: Clean up previous data
+        cleanup_databases()
+        
+        # Step 5: Create temporary storage
         create_pseudonymised_store()
         #pseudonymised_store_path = Path("/tmp/ldp_demo_5_6qp1zg_pseudonymised/")
 
-        # Step 4: Run the pipeline
+        # Step 6: Run the pipeline
         run_pipeline(input_file_path=input_file_path)
         print(f"\nPipeline completed successfully!")
 
-        # Step 5: Display pipeline data contents
+        # Step 7: Display pipeline data contents
         display_pipeline_data()
 
         print(f"\nDemo completed successfully!")

@@ -1,0 +1,11 @@
+2025-10-13 14:48:45,259 - === Testing Single Long-Lived Key Strategy ===
+2025-10-13 14:48:45,276 - Joinability: 3/3 (100% - perfect)
+2025-10-13 14:48:45,279 - === Testing Key Versioning Strategy ===
+2025-10-13 14:48:45,279 - Same version joins: 3/3
+2025-10-13 14:48:45,280 - Cross-version joins: 0/3
+2025-10-13 14:48:45,282 - === Testing Two-Layer Strategy (Recommended) ===
+2025-10-13 14:48:45,283 - Joinable via master_id: 3/3
+2025-10-13 14:48:45,283 - Different encrypted pseudonyms: 3/3
+2025-10-13 14:48:45,285 - Testing independent key rotation
+2025-10-13 14:48:45,286 - Joins before rotation: 3/3
+2025-10-13 14:48:45,286 - Joins after rotation: 3/3

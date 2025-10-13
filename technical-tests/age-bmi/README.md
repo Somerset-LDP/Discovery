@@ -64,7 +64,7 @@ pseudonymised/
     └── calculated/   # Age, derived demographics
 ```
 
-👉 **Think of this layer as "dumb but safe"** - minimal processing, maximum safety.
+**Think of this layer as "dumb but safe"** - minimal processing, maximum safety.
 
 ### 2. Refined Layer  
 **Purpose**: The source of truth for clean, consistent, canonical data models.
@@ -78,7 +78,7 @@ pseudonymised/
 
 **Storage**: Relational database with normalized schema - see [`create_schema_refined.sql`](data/init/ddl/create_schema_refined.sql) for complete schema definition.
 
-👉 **This is the business-ready foundation** for all downstream analytics and processing.
+**This is the business-ready foundation** for all downstream analytics and processing.
 
 ### 3. Derived Layer
 **Purpose**: Data optimized for consumption, reporting, and machine learning.
@@ -86,12 +86,6 @@ pseudonymised/
 **Characteristics**:
 - **Analytics transformations**: BMI calculations, risk scores, trend analysis
 - **Performance optimization**: Denormalized views, pre-computed aggregates
-- **Consumer-specific formats**: Different analytical consumers need different data shapes for example:
-  - *Star schemas* for BI tools (Tableau, Power BI) - fact tables with dimensional lookups
-  - *Wide tables* for reporting - denormalized views with all metrics in one row
-  - *Feature vectors* for ML - numeric arrays optimized for model training
-  - *Time series* for trend analysis - indexed by date/time for efficient querying
-  - *Aggregate tables* for dashboards - pre-calculated summaries by demographics
 - **Incremental updates**: Only recalculate when upstream data changes
 
 **Storage**: Multi-modal storage optimized for different analytical needs:
@@ -100,7 +94,7 @@ pseudonymised/
 - *Time-series databases* for trend analysis and monitoring dashboards
 - *Document stores* for flexible analytical metadata and complex nested structures
 
-👉 **This is the "answer layer"** where data is shaped for specific analytical needs.
+**This is the "answer layer"** where data is shaped for specific analytical needs.
 
 ---
 
@@ -176,13 +170,11 @@ Implements clinically appropriate BMI categories based on:
 
 ## The Demo
 
-# Demo Usage
-
-This directory contains sample data and configuration for the Age-BMI Data Pipeline. The demo script (`demo.py`) has been moved to the main age-bmi directory for simplicity.
-
-## Quick Start
+### Quick Start
 
 1. **Start Docker services:**
+See [docker-compose.yml](./docker-compose.yml) for details of the services
+
    ```bash
    docker-compose up -d
    ```
@@ -191,24 +183,21 @@ This directory contains sample data and configuration for the Age-BMI Data Pipel
    - The `.env` file in this directory contains all required environment variables
    - Variables are automatically loaded when running the demo script
 
+| Environment Variable | Description | Example Value (based on docker compose file) |
+|---------------------|-------------|---------------|
+| `SNOMED_BODY_HEIGHT` | SNOMED CT code for body height observations (50373000 = "Body height") | `50373000` |
+| `SNOMED_BODY_WEIGHT` | SNOMED CT code for body weight observations (27113001 = "Body weight") | `27113001` |
+| `REFINED_DATABASE_URL` | PostgreSQL connection string for the refined data layer database | `postgresql+psycopg2://admin:admin@localhost:5432/ldp` |
+| `DERIVED_DATABASE_URL` | PostgreSQL connection string for the derived data layer database | `postgresql+psycopg2://admin:admin@localhost:5432/ldp` |
+| `FHIR_BASE_URL` | Base URL for the HAPI FHIR server used for terminology services | `http://localhost:8080/fhir` |
+
 3. **Run the demo:**
    ```bash
    # From the age-bmi directory (where your virtual environment is active)
    python demo.py demo/raw_patients.json
    ```
 
-## Demo Script Features
-
-The `../demo.py` script (located in the main age-bmi directory):
-- ✅ Automatically loads environment variables from `demo/.env`
-- ✅ Validates required environment variables are set
-- ✅ Validates input file format and content
-- ✅ Creates temporary directory for pseudonymised storage  
-- ✅ Orchestrates the complete pipeline execution
-- ✅ Provides detailed execution summary
-- ✅ Handles errors gracefully with clear messages
-
-## Sample Data
+### Sample Data
 
 - `raw_patients.json` - Sample patient data demonstrating various:
   - Age groups (adults and children)
@@ -217,21 +206,12 @@ The `../demo.py` script (located in the main age-bmi directory):
   - Units (kg/lbs/stone for weight, cm/m/inches for height)
   - Code systems (SNOMED CT, LOINC)
 
-## Command Line Options
-
-```bash
-# From age-bmi directory (where your virtual environment is active)
-python demo.py --help                    # Show help
-python demo.py demo/raw_patients.json    # Run pipeline with sample data
-python demo.py data/raw_stored.json      # Run pipeline with alternative data
-```
-
-| Patient ID | Age | Gender | Ethnicity | Weight | Weight Unit | Height | Height Unit | Code System |
-|------------|-----|--------|-----------|---------|-------------|---------|-------------|-------------|
-| demo_001 | 40 | Female | White British | 154 | lbs | 65 | inches | LOINC |
-| demo_002 | 47 | Male | British Asian | 75 | kg | 1.72 | m | SNOMED CT |
-| demo_003 | 11 | Male | White British | 35 | kg | 140 | cm | SNOMED CT |
-| demo_004 | 9 | Female | British Asian | 58.8 | lbs | 47.2 | inches | LOINC |
+| ID | Age | Gender | Ethnicity | Height | Weight |
+|----|-----|--------|-----------|--------|--------|
+| 1 | 40 | Male (248152002) | White British (494131000000105) | 65 inches | 154 lbs |
+| 2 | 47 | Female (248153007) | White Irish (92681000000104) | 172 cm | 75 kg |
+| 3 | 10 | Female (248153007) | White British (494131000000105) | 140 cm | 35 kg |
+| 4 | 8 | Male (248152002) | White Irish (92681000000104) | 47.2 inches | 58.8 lbs |
 
 ---
 
@@ -251,35 +231,31 @@ python demo.py data/raw_stored.json      # Run pipeline with alternative data
 
 ### Development Infrastructure
 - **Containerization**: [Docker Compose](https://docs.docker.com/compose/) for local FHIR server and Postgres server
-- **Testing**: Unit and integration test suites
 
 ---
 
 ## Current Implementation Status
 
-### ✅ Implemented Features
+### Implemented Features
 - **Three-layer pipeline architecture** with clear separation of concerns
 - **BMI calculation and clinical classification** for adults and children  
 - **FHIR terminology integration** with code validation and mapping
 - **Ethnicity-specific BMI thresholds** following clinical guidelines
-- **Comprehensive test coverage** with Docker-based integration tests
 - **SNOMED CT sex code mapping** for demographic standardization
 
-### 🚧 Proof of Concept Limitations
+### Proof of Concept Limitations
 This is a **technical demonstration** with several production readiness gaps:
 
 - **No production FHIR server**: Uses local HAPI FHIR instance
 - **File-based object storage**: Not using cloud storage services
 - **Single database instance**: No separation of refined/derived databases  
-- **No orchestration**: Manual pipeline execution, no DAG scheduling
+- **No orchestration**: Manual pipeline execution, no scheduling
 - **Limited security**: No authentication, authorization, or audit logging
 - **No monitoring**: No observability, alerting, or performance metrics
-- **Simplified pseudonymisation**: Basic field removal, not cryptographic hashing
 - **No data lineage**: Missing ability to trace data through the storage layers
 - **No audit trail**: Missing audit of who, what and when
 - **No merging of data**: Updated records, data conflicts and de-duplication are not handled
 - **No pseduonymisation**: Pseudonymisaton is the subject of its own technical test
-- **No PII detection**: before writing to pseudonymised layer at sanity check around the presence of PII would potentially be worthwhile
 
 ---
 
@@ -287,7 +263,7 @@ This is a **technical demonstration** with several production readiness gaps:
 
 ### 1. Production Readiness
 - **Security**: Authentication, authorization, audit trails
-- **Orchestration**: Airflow/Prefect/Dagster for scheduled execution
+- **Orchestration**: for scheduled execution
 - **Monitoring**: Observability, alerting, performance tracking
 - **Scaling**: Separate databases, distributed processing capabilities
 - **Cloud Integration**: S3/GCS storage, managed services
@@ -296,52 +272,19 @@ This is a **technical demonstration** with several production readiness gaps:
 - **Lineage Tracking**: Investigate OpenLineage, DataHub, or Apache Atlas
 - **Data Dictionary**: Self-service data discovery and documentation
 - **Lakehouse Architecture**: Explore Delta Lake, Iceberg for unified storage
-- **Stream Processing**: Event-driven pipelines for real-time updates
+- **Stream Processing**: Event-driven pipelines for real-time updates (this is relevant when the LDP needs to support SIDeR)
 
 ### 3. Healthcare-Specific Features
-- **Advanced Pseudonymisation**: Cryptographic techniques, differential privacy
 - **PII Detection**: Automated identification of personal information
 - **Record Linkage**: Probabilistic matching across data sources  
 
 ### 4. Analytics & Self-Service
 - **Query Interface**: Trino/Presto for SQL-based data exploration
 - **Data Catalog**: Automated metadata management and discovery
-- **ML Pipeline Integration**: Feature stores, model training pipelines
-- **Population Health Analytics**: Cohort analysis, trend identification
 
 ---
 
-## Getting Started
-
-### Prerequisites
-- Docker and Docker Compose
-- Python 3.12+
-- PostgreSQL client tools
-
-### Quick Start
-1. **Start the infrastructure**:
-   ```bash
-   docker-compose up -d  # FHIR server + PostgreSQL
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Run the pipeline**:
-   ```bash
-   # Process raw data through all layers
-   python pipeline_refined.py
-   python pipeline_derived.py
-   ```
-
-4. **Run tests**:
-   ```bash
-   pytest tests/ -v
-   ```
-
-### Project Structure
+## Project Structure
 ```
 age-bmi/
 ├── pipeline_refined.py       # Refined layer pipeline

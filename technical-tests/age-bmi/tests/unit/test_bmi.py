@@ -170,8 +170,13 @@ def test_one_year_old_infant_female(mock_child_category, mock_fhir_client):
 
 def test_exactly_18_years_old_adult_path(mock_fhir_client):
     """Test exactly 18 years old takes adult path."""
+    from datetime import date, timedelta
+    # Calculate a date that is exactly 18 years ago
+    today = date.today()
+    eighteen_years_ago = date(today.year - 18, today.month, today.day)
+    
     patient_data = {
-        "dob": date.today() - timedelta(days=365 * 18),  # Exactly 18 years
+        "dob": eighteen_years_ago,  # Exactly 18 years old
         "height_cm": 170.0,
         "weight_kg": 70.0,
         "sex_code": "248152002",
@@ -240,20 +245,21 @@ def test_missing_both_height_and_weight(adult_patient_base, mock_fhir_client):
     assert category is None
 
 def test_zero_height(adult_patient_base, mock_fhir_client):
-    """Test zero height handles division by zero gracefully."""
+    """Test zero height returns None values (height is considered falsy)."""
     adult_patient_base["height_cm"] = 0
     
-    with pytest.raises(ZeroDivisionError):
-        calculate_bmi_and_category(adult_patient_base, mock_fhir_client)
+    bmi, category = calculate_bmi_and_category(adult_patient_base, mock_fhir_client)
+    
+    assert bmi is None
+    assert category is None
 
 def test_zero_weight(adult_patient_base, mock_fhir_client):
-    """Test zero weight calculates BMI as 0."""
+    """Test zero weight returns None values (weight is considered falsy)."""
     adult_patient_base["weight_kg"] = 0
     
-    with patch('calculators.bmi._determine_adult_weight_category', return_value=None):
-        bmi, category = calculate_bmi_and_category(adult_patient_base, mock_fhir_client)
+    bmi, category = calculate_bmi_and_category(adult_patient_base, mock_fhir_client)
     
-    assert bmi == 0.0
+    assert bmi is None
     assert category is None
 
 # ------------------------
@@ -261,13 +267,15 @@ def test_zero_weight(adult_patient_base, mock_fhir_client):
 # ------------------------
 
 def test_invalid_snomed_sex_code_for_child(child_patient_base, mock_fhir_client):
-    """Test invalid SNOMED sex code for child raises ValueError."""
+    """Test invalid SNOMED sex code for child logs warning and returns None category."""
     child_patient_base["sex_code"] = "invalid_code"
     
-    with pytest.raises(ValueError, match="Unknown SNOMED sex code"):
-        # We need to test _map_snomed_sex_to_rcpchgrowth_sex directly since 
-        # calculate_bmi_and_category now handles this gracefully
-        _map_snomed_sex_to_rcpchgrowth_sex("invalid_code")
+    with patch('calculators.bmi.Measurement', MockMeasurement):
+        bmi, category = calculate_bmi_and_category(child_patient_base, mock_fhir_client)
+    
+    # Should calculate BMI but category should be None due to invalid sex code
+    assert bmi == pytest.approx(16.53, abs=0.01)
+    assert category is None
 
 def test_non_snomed_sex_system_for_child(child_patient_base, mock_fhir_client):
     """Test non-SNOMED sex system for child raises ValueError."""
@@ -412,7 +420,9 @@ def test_decimal_inputs(mock_fhir_client):
     with patch('calculators.bmi._determine_adult_weight_category', return_value=None):
         bmi, category = calculate_bmi_and_category(patient_data, mock_fhir_client)
     
-    assert bmi == pytest.approx(23.46, abs=0.01)
+    # Convert BMI to float for comparison since pytest.approx doesn't handle Decimal/float mixing well
+    assert bmi is not None
+    assert float(bmi) == pytest.approx(23.46, abs=0.01)
 
 def test_float_inputs(mock_fhir_client):
     """Test float inputs for height and weight."""

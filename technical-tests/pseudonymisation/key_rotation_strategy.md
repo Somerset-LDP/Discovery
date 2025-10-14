@@ -88,8 +88,10 @@ Planned Rotation:
 - Impact: Joins broken until all systems updated to same version
 
 Emergency (Key Compromise):
-- Same as planned rotation but immediate execution
-- Impact: All pseudonyms must be recreated, coordination across all providers required
+- Same process as planned rotation but with immediate execution
+- Key advantage over Option 1: Only data encrypted with the compromised key version needs re-encryption, not all historical data
+- Impact: Pseudonyms from compromised time period must be recreated, coordination across all providers required
+- Scope limitation example: If quarterly rotation is used, only 3 months of data requires re-encryption vs. entire historical dataset
 
 ### Option 3: Hash-based Master ID + Encrypted Pseudonym
 

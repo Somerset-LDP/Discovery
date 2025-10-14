@@ -11,6 +11,7 @@
 ### Option 2: Remote-Only Encryption Service
 
 - Central microservice/Lambda for all pseudonymisation
+- Central key management service (AWS KMS/Azure Key Vault)
 - All components call remote service
 - Centralized execution and control
 
@@ -65,6 +66,11 @@ management, Remote Service approach is favored for the following reasons:
 1. Determinism Guarantee: Single implementation eliminates risk of version mismatches between components
 2. Operational Simplicity: Easy deployment of algorithm updates and key rotation across entire system
 3. Risk Mitigation: Centralized control reduces complexity of maintaining consistency across distributed components
+
+Resilience & Scaling: While remote services introduce a central dependency, cloud-native
+infrastructure (AWS Lambda, multi-AZ deployment, auto-scaling) transforms this into a highly available service with
+better resilience characteristics than managing distributed library versions across multiple pipeline components. The
+apparent "single point of failure" becomes a "single point of control" with enterprise-grade availability.
 
 ## Next Steps
 

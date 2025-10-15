@@ -54,8 +54,42 @@ Evaluation:
 Approach: Non-reversible hash for joins + encrypted pseudonyms with rotatable keys.
 
 *Structure:*
-- *master_id = hash(nhs_number + salt) - never changes, enables joins*
-- *encrypted_pseudonym = encrypt(dataset_key, nhs_number) - rotatable per dataset/timeframe*
+- *master_id = HMAC_SHA256(secret_key, nhs_number | "v1") - stored in KMS/HSM, never changes, enables joins*
+- *encrypted_pseudonym = encrypt(dataset_key, nhs_number) - rotatable per dataset*
+- *Key hierarchy: k_root -> k_master (for IDs) / k_dataset,v (for encryption)*
+
+Enhanced Security Layer (Recommended):
+To avoid exposing master_id outside the core LDP system, add temporary tokens for external use:
+
+- Internal joins: Use master_id within LDP infrastructure
+- External APIs: Generate time-limited opaque tokens (15-minute expiry)
+- Logging: Use correlation_id instead of sensitive identifiers
+- Public datasets: Never expose master_id or system_id directly
+
+System-Specific Identifiers (Cross-System Joins):
+For cases where external systems need to link data for the same person, generate system-specific identifiers:
+
+```
+system_id = HMAC(master_secret, master_id + system_name)
+```
+
+Benefits:
+- Each system can link its own data for the same person
+- Identifiers between systems don't overlap
+- No exposure of master_id outside LDP core
+- Maintains traceability without leaking sensitive IDs
+
+*Example external API response:*
+```json
+{
+  "patient": {
+    "id": "AbCdEf123GhIjKlMn",
+    "expiresAt": "2025-10-14T12:30:00Z",
+    "bmi": 24.7,
+    "bmiCategory": "healthy"
+  }
+}
+```
 
 Evaluation:
 
@@ -108,8 +142,8 @@ Emergency Storage Key (Single Dataset):
 - Impact: Single dataset affected, joins preserved via master_id
 
 Emergency Hash Salt Compromise (Critical but rare):
-- Process: Generate new salt -> Regenerate all master_ids across system
-- Impact: System-wide master_id regeneration required
+- Process: Generate new salt -> Maintain both old and new master_ids during transition -> Gradual migration preserves joins -> Complete migration when all systems updated
+- Impact: System-wide master_id regeneration required but no service interruption
 
 ## Comparison: What Needs Recreation During Rotation
 
@@ -130,9 +164,11 @@ Rationale:
 - Zero downtime: Joins continue working during all rotation scenarios  
 - Future-proof: Algorithm migration preserves existing joins via stable hash
 - Operational simplicity: No cross-system coordination required for routine rotation
+- Enhanced security: HMAC prevents brute-force attacks, temporary tokens protect external exposure
 
 Key Benefits:
 - Joins never break during key rotation
 - Security compromise affects minimal data scope
 - Each dataset can rotate keys independently
 - No system-wide downtime requirements
+- Master IDs never exposed outside NHS infrastructure

@@ -67,10 +67,34 @@ management, Remote Service approach is favored for the following reasons:
 2. Operational Simplicity: Easy deployment of algorithm updates and key rotation across entire system
 3. Risk Mitigation: Centralized control reduces complexity of maintaining consistency across distributed components
 
-Resilience & Scaling: While remote services introduce a central dependency, cloud-native
+Addressing Resilience & Scaling Concerns: While remote services introduce a central dependency, cloud-native
 infrastructure (AWS Lambda, multi-AZ deployment, auto-scaling) transforms this into a highly available service with
 better resilience characteristics than managing distributed library versions across multiple pipeline components. The
 apparent "single point of failure" becomes a "single point of control" with enterprise-grade availability.
+
+## Hybrid Approach (Long-term Consideration)
+
+For larger scale systems, consider separating the two core functions:
+
+Remote HMAC Service:
+
+- Centralized master ID generation: `master_id = HMAC(secret, nhs_number)`
+- Ensures determinism and auditability across all systems
+- Lightweight service focused solely on consistent identifier generation
+
+Local Encryption Libraries:
+
+- Pseudonymisation/re-identification handled locally for performance
+- Reduces network calls for high-volume data processing
+- Better resilience - encryption continues during HMAC service outages
+
+Practical Implementation:
+
+- Outage handling: HMAC service with retries, regional failover, and short-term caching
+- Security operations: Log correlation IDs only, emergency key disable capability
+- Scaling: HMAC service scales independently from encryption workloads
+
+This hybrid model provides deterministic joins (remote) with performant processing (local).
 
 ## Next Steps
 

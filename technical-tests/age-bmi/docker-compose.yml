@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:17
+    container_name: data-store
+    restart: always    
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/init:/docker-entrypoint-initdb.d
+      - pgdata:/var/lib/postgresql/data     
+
+  fhir:
+    image: "hapiproject/hapi:latest"
+    container_name: fhir-server
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./fhir/hapi.application.yaml:/app/config/application.yaml
+    depends_on:
+      - db
+
+  fhir-loader:
+    image: alpine:latest
+    depends_on:
+      - fhir
+    volumes:
+      - ./data/fhir-store:/data/fhir-store
+    working_dir: /data/fhir-store/resources
+    entrypoint: 
+      - "/bin/sh"
+      - "-c"
+      - |
+        apk add --no-cache curl jq bash
+        echo "Current directory: $$(pwd)"
+        chmod +x load_resources.sh
+        echo "Waiting for FHIR server to be ready..."
+        while [ "$$(curl -s -o /dev/null -w '%{http_code}' http://fhir:8080/fhir/metadata)" != "200" ]; do 
+          echo "FHIR server not ready yet, waiting..."
+          sleep 5
+        done
+        echo "FHIR server is ready, loading resources..."
+        ./load_resources.sh http://fhir:8080/fhir
+
+volumes:
+  pgdata:

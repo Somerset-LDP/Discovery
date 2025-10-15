@@ -1,0 +1,52 @@
+{
+  "resourceType": "ObservationDefinition",
+  "id": "body-height-definition",
+  "status": "active",
+  "code": {
+    "coding": [
+      {
+        "system": "http://snomed.info/sct",
+        "code": "50373000",
+        "display": "Body height"
+      }
+    ],
+    "text": "Body height"
+  },
+  "quantitativeDetails": {
+    "unit": {
+      "coding": [
+        {
+          "system": "http://unitsofmeasure.org",
+          "code": "cm",
+          "display": "centimeter"
+        }
+      ],
+      "text": "centimeter"
+    },
+    "permittedUnits": [
+      {
+        "coding": [
+          {
+            "system": "http://unitsofmeasure.org",
+            "code": "cm",
+            "display": "centimeter"
+          }
+        ],
+        "text": "centimeter"
+      }
+    ]
+  },
+  "category": [
+    {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+          "code": "vital-signs",
+          "display": "Vital Signs"
+        }
+      ],
+      "text": "Vital Signs"
+    }
+  ],
+  "description": "Definition for body height measurement using SNOMED CT code 248326004."
+}

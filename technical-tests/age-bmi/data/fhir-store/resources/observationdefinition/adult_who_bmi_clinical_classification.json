@@ -1,0 +1,133 @@
+{
+  "resourceType": "ObservationDefinition",
+  "id": "adult-who-bmi-clinical-classification",
+  "status": "active",
+  "description": "BMI classification for adults (18 years and over) based on guidelines from https://www.nhsinform.scot/healthy-living/weight-loss/understanding-healthy-weight/how-do-i-measure-my-body-mass-index-bmi.",
+  "code": {
+    "coding": [
+      {
+        "system": "http://snomed.info/sct",
+        "code": "60621009",
+        "display": "Body mass index"
+      }
+    ],
+    "text": "Body mass index"    
+  },
+  "category": [
+    {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+          "code": "vital-signs"
+        }
+      ]
+    }
+  ],
+  "qualifiedInterval": [
+    {
+      "range": { "low": { "value": 0 }, "high": { "value": 18.5 } },
+      "context": {
+        "coding": [
+          { "system": "http://snomed.info/sct", "code": "248342006", "display": "Underweight" }
+        ]
+      },
+      "appliesTo": [
+        { "coding": [ 
+          { "system": "http://snomed.info/sct", "code": "494131000000105", "display": "White British - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "494161000000100", "display": "White Irish - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "94051000000109", "display": "Other White or White unspecified - ethnic category 2001 census (finding)" }
+        ] }
+      ]
+    },
+    {
+      "range": { "low": { "value": 18.5 }, "high": { "value": 24.9 } },
+      "context": {
+        "coding": [
+          { "system": "http://snomed.info/sct", "code": "35425004", "display": "Normal weight" }
+        ]
+      },
+      "appliesTo": [
+        { "coding": [ 
+          { "system": "http://snomed.info/sct", "code": "494131000000105", "display": "White British - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "494161000000100", "display": "White Irish - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "94051000000109", "display": "Other White or White unspecified - ethnic category 2001 census (finding)" }
+        ] }
+      ]
+    },
+    {
+      "range": { "low": { "value": 25 }, "high": { "value": 29.9 } },
+      "context": {
+        "coding": [
+          { "system": "http://snomed.info/sct", "code": "238131007", "display": "Overweight" }
+        ]
+      },
+      "appliesTo": [
+        { "coding": [ 
+          { "system": "http://snomed.info/sct", "code": "494131000000105", "display": "White British - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "494161000000100", "display": "White Irish - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "94051000000109", "display": "Other White or White unspecified - ethnic category 2001 census (finding)" }
+        ] }
+      ]
+    },
+    {
+      "range": { "low": { "value": 30 }, "high": { "value": 39.9 } },
+      "context": {
+        "coding": [
+          { "system": "http://snomed.info/sct", "code": "414915002", "display": "Obese" }
+        ]
+      },
+      "appliesTo": [
+        { "coding": [ 
+          { "system": "http://snomed.info/sct", "code": "494131000000105", "display": "White British - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "494161000000100", "display": "White Irish - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "94051000000109", "display": "Other White or White unspecified - ethnic category 2001 census (finding)" }
+        ] }
+      ]
+    },
+    {
+      "range": { "low": { "value": 40 } },
+      "context": {
+        "coding": [
+          { "system": "http://snomed.info/sct", "code": "408512008", "display": "Severely obese" }
+        ]
+      },
+      "appliesTo": [
+        { "coding": [ 
+          { "system": "http://snomed.info/sct", "code": "494131000000105", "display": "White British - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "494161000000100", "display": "White Irish - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "94051000000109", "display": "Other White or White unspecified - ethnic category 2001 census (finding)" }
+        ] }
+      ]
+    },
+    {
+      "range": { "low": { "value": 23 }, "high": { "value": 27.4 } },
+      "context": {
+        "coding": [
+          { "system": "http://snomed.info/sct", "code": "238131007", "display": "Overweight" }
+        ]
+      },
+      "appliesTo": [
+        { "coding": [
+          { "system": "http://snomed.info/sct", "code": "92681000000104", "display": "British Asian - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "92491000000104", "display": "African - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "92511000000107", "display": "Chinese - ethnic category 2001 census (finding)" }
+        ] }
+      ]
+    },
+    {
+      "range": { "low": { "value": 27.5 } },
+      "context": {
+        "coding": [
+          { "system": "http://snomed.info/sct", "code": "414915002", "display": "Obese" }
+        ]
+      },
+      "appliesTo": [
+        { "coding": [
+          { "system": "http://snomed.info/sct", "code": "92681000000104", "display": "British Asian - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "92491000000104", "display": "African - ethnic category 2001 census (finding)" },
+          { "system": "http://snomed.info/sct", "code": "92511000000107", "display": "Chinese - ethnic category 2001 census (finding)" }
+        ] }
+      ]
+    }
+  ]
+}

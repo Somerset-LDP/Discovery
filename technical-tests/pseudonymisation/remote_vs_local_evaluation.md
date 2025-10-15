@@ -76,25 +76,18 @@ apparent "single point of failure" becomes a "single point of control" with ente
 
 For larger scale systems, consider separating the two core functions:
 
-Remote HMAC Service:
+Local Pseudonymisation Library:
+- Pseudonymisation handled locally for high-volume data ingestion
+- Reduces network calls for data processing pipelines
+- Better resilience - pseudonymisation continues during service outages
 
+Remote Analysis Service:
 - Centralized master ID generation: `master_id = HMAC(secret, nhs_number)`
-- Ensures determinism and auditability across all systems
-- Lightweight service focused solely on consistent identifier generation
+- Re-identification capability for authorized analysts
+- Cross-dataset query processing using master_ids
+- Role-based access control and audit logging
 
-Local Encryption Libraries:
-
-- Pseudonymisation/re-identification handled locally for performance
-- Reduces network calls for high-volume data processing
-- Better resilience - encryption continues during HMAC service outages
-
-Practical Implementation:
-
-- Outage handling: HMAC service with retries, regional failover, and short-term caching
-- Security operations: Log correlation IDs only, emergency key disable capability
-- Scaling: HMAC service scales independently from encryption workloads
-
-This hybrid model provides deterministic joins (remote) with performant processing (local).
+This hybrid model provides deterministic joins (remote) with performant data processing (local) while centralizing analytical access.
 
 ## Next Steps
 

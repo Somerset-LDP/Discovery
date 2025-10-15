@@ -1,0 +1,65 @@
+2025-10-13 10:42:33,836 - === AESGCMSIV: NHS Field Determinism Test (100k records) ===
+2025-10-13 10:42:35,102 - AESGCMSIV NHS determinism - Time: 1.26s, CPU: 0.0%, RAM: 128.11MB
+2025-10-13 10:42:35,107 - AESGCMSIV NHS determinism mismatches: 0/100000
+2025-10-13 10:42:35,112 - === AESSIV: NHS Field Determinism Test (100k records) ===
+2025-10-13 10:42:36,249 - AESSIV NHS determinism - Time: 1.14s, CPU: 0.0%, RAM: 127.91MB
+2025-10-13 10:42:36,255 - AESSIV NHS determinism mismatches: 0/100000
+2025-10-13 10:42:36,259 - === AESGCMSIV: Pure Encryption Performance Test (100k records × 5 fields) ===
+2025-10-13 10:42:39,480 - AESGCMSIV pure encryption - Time: 1.20s, CPU: 0.0%, RAM: 226.41MB
+2025-10-13 10:42:39,480 - AESGCMSIV pure encryption throughput: 415872.03 encryptions/sec, 83174.41 complete records/sec (100k records × 5 fields = 500,000 pure encryptions)
+2025-10-13 10:42:39,511 - === AESSIV: Pure Encryption Performance Test (100k records × 5 fields) ===
+2025-10-13 10:42:42,093 - AESSIV pure encryption - Time: 2.33s, CPU: 0.0%, RAM: 173.01MB
+2025-10-13 10:42:42,093 - AESSIV pure encryption throughput: 214418.05 encryptions/sec, 42883.61 complete records/sec (100k records × 5 fields = 500,000 pure encryptions)
+2025-10-13 10:42:42,110 - === AESGCMSIV: Cross-Dataset Join Test ===
+2025-10-13 10:42:42,114 - AESGCMSIV cross-dataset join: 100 records successfully joined on NHS pseudonym
+2025-10-13 10:42:42,115 - === AESSIV: Cross-Dataset Join Test ===
+2025-10-13 10:42:42,118 - AESSIV cross-dataset join: 100 records successfully joined on NHS pseudonym
+2025-10-13 10:42:42,120 - === AESGCMSIV: Tamper Detection Test (NHS field) ===
+2025-10-13 10:42:42,120 - AESGCMSIV tamper detected in NHS 0: InvalidTag
+2025-10-13 10:42:42,121 - AESGCMSIV tamper detected in NHS 1: InvalidTag
+2025-10-13 10:42:42,121 - AESGCMSIV tamper detected in NHS 2: InvalidTag
+2025-10-13 10:42:42,121 - AESGCMSIV tamper detected in NHS 3: InvalidTag
+2025-10-13 10:42:42,121 - AESGCMSIV tamper detected in NHS 4: InvalidTag
+2025-10-13 10:42:42,121 - AESGCMSIV tamper detected in NHS 5: InvalidTag
+2025-10-13 10:42:42,121 - AESGCMSIV tamper detected in NHS 6: InvalidTag
+2025-10-13 10:42:42,121 - AESGCMSIV tamper detected in NHS 7: InvalidTag
+2025-10-13 10:42:42,122 - AESGCMSIV tamper detected in NHS 8: InvalidTag
+2025-10-13 10:42:42,122 - AESGCMSIV tamper detected in NHS 9: InvalidTag
+2025-10-13 10:42:42,122 - AESGCMSIV successfully detected tampering in 10/10 NHS pseudonyms
+2025-10-13 10:42:42,125 - === AESSIV: Tamper Detection Test (NHS field) ===
+2025-10-13 10:42:42,125 - AESSIV tamper detected in NHS 0: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 1: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 2: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 3: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 4: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 5: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 6: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 7: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 8: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV tamper detected in NHS 9: InvalidTag
+2025-10-13 10:42:42,126 - AESSIV successfully detected tampering in 10/10 NHS pseudonyms
+2025-10-13 10:42:42,128 - === AESGCMSIV: Collision Resistance Test (NHS field, 1000 records) ===
+2025-10-13 10:42:42,135 - AESGCMSIV collision resistance: 1000/1000 unique NHS pseudonyms
+2025-10-13 10:42:42,137 - === AESSIV: Collision Resistance Test (NHS field, 1000 records) ===
+2025-10-13 10:42:42,144 - AESSIV collision resistance: 1000/1000 unique NHS pseudonyms
+2025-10-13 10:42:42,144 - === Field-Level Pseudonymisation Test Suite Completed ===
+2025-10-13 10:42:42,146 - === AESGCMSIV Scalability Test ===
+2025-10-13 10:44:15,345 - === AESGCMSIV Performance Summary ===
+2025-10-13 10:44:15,345 -    1,000 records:  161,667 ops/sec,   0.03s, CPU:  33.2%
+2025-10-13 10:44:15,345 -    5,000 records:  161,897 ops/sec,   0.15s, CPU:  49.9%
+2025-10-13 10:44:15,345 -   10,000 records:  153,928 ops/sec,   0.32s, CPU:  93.5%
+2025-10-13 10:44:15,345 -   25,000 records:  157,872 ops/sec,   0.79s, CPU:  71.2%
+2025-10-13 10:44:15,345 -   50,000 records:  158,170 ops/sec,   1.58s, CPU:  91.1%
+2025-10-13 10:44:15,345 -  100,000 records:  156,504 ops/sec,   3.19s, CPU:  92.4%
+2025-10-13 10:44:15,345 -  500,000 records:  149,960 ops/sec,  16.67s, CPU:  96.0%
+2025-10-13 10:44:15,345 - 1,000,000 records:  119,095 ops/sec,  41.98s, CPU:  96.4%
+2025-10-13 10:44:15,426 - === AESSIV Scalability Test ===
+2025-10-13 10:45:44,849 - === AESSIV Performance Summary ===
+2025-10-13 10:45:44,849 -    1,000 records:  152,070 ops/sec,   0.03s, CPU:  28.7%
+2025-10-13 10:45:44,849 -    5,000 records:  148,658 ops/sec,   0.17s, CPU:  77.0%
+2025-10-13 10:45:44,849 -   10,000 records:  146,630 ops/sec,   0.34s, CPU:  14.3%
+2025-10-13 10:45:44,849 -   25,000 records:  139,318 ops/sec,   0.90s, CPU:  80.6%
+2025-10-13 10:45:44,849 -   50,000 records:  134,514 ops/sec,   1.86s, CPU:  83.8%
+2025-10-13 10:45:44,849 -  100,000 records:  123,402 ops/sec,   4.05s, CPU:  90.8%
+2025-10-13 10:45:44,850 -  500,000 records:  146,897 ops/sec,  17.02s, CPU:  96.8%
+2025-10-13 10:45:44,850 - 1,000,000 records:  167,233 ops/sec,  29.90s, CPU:  93.5%

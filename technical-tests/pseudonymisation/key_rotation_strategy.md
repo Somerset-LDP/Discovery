@@ -1,13 +1,13 @@
 # Key Rotation Strategy for Deterministic Pseudonymisation
 
-## Problem Statement
+## Context
 
 Core Challenge: Deterministic encryption ties ciphertext directly to key version. When keys rotate, pseudonyms change,
 breaking cross-dataset joins unless mitigated.
 
 NHS Context:
 
-- All encryption/decryption happens within NHS infrastructure (no external key distribution)
+- All encryption/decryption happens within LDP infrastructure (no external key distribution)
 - Cross-dataset joins required
 - Key compromise requires immediate revocation and mitigation
 
@@ -19,7 +19,6 @@ Approach: One encryption key for all datasets, never rotated.
 
 *Pseudo-code: pseudonym = encrypt(master_key, nhs_number)*
 
-Evaluation:
 
 | Criteria                    | Assessment | Notes                                                 |
 |-----------------------------|------------|-------------------------------------------------------|
@@ -37,7 +36,6 @@ Approach: Periodic key rotation with complete dataset re-encryption.
 
 *Process: Decrypt all records -> Re-encrypt with new key -> Update all systems*
 
-Evaluation:
 
 | Criteria                    | Assessment | Notes                                             |
 |-----------------------------|------------|---------------------------------------------------|
@@ -112,7 +110,7 @@ Planned Rotation:
 - Impact: Complete system rebuild required
 
 Emergency (Key Compromise):
-- Process: Generate new key -> Re-encrypt ALL data -> Deploy everywhere simultaneously
+- Process: Generate new key -> Re-encrypt all data -> Deploy everywhere simultaneously
 - Impact: Total system downtime, all systems must coordinate
 
 ### Option 2: Key Versioning with Batch Re-encryption
@@ -171,4 +169,4 @@ Key Benefits:
 - Security compromise affects minimal data scope
 - Each dataset can rotate keys independently
 - No system-wide downtime requirements
-- Master IDs never exposed outside NHS infrastructure
+- Master IDs never exposed outside LDP infrastructure

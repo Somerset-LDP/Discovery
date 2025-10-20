@@ -14,7 +14,7 @@ Critical Point: AES algorithms (both AES-GCM-SIV and AES-SIV) are inherently sym
 
 The Reality of "Asymmetric" Approach:
 - RSA public key → HKDF derivation → 32-byte AES symmetric key
-- Same derived AES key used for both encrypt AND decrypt operations
+- Same derived AES key used for both encrypt and decrypt operations
 - No actual separation of encrypt/decrypt permissions
 - Cannot use RSA keys directly with AES - must always derive symmetric key first
 
@@ -49,6 +49,5 @@ Use Symmetric Key Management (AWS KMS/Azure Key Vault)
 ## Implementation Notes:
 
 - Store 256-bit AES key in AWS KMS/Azure Key Vault
-- Use AES-GCM-SIV with deterministic nonce strategy
 - Service-specific IAM roles for key access
 - Standard KMS audit and rotation procedures

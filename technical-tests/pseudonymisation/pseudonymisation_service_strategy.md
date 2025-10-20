@@ -15,8 +15,7 @@ infrastructure.
 
 ## Tactical Solution: Lambda Service
 
-Discovery Prototype:  For discovery purposes, all functionalities are combined into a single service prototype with
-simplified functionality to demonstrate core capabilities.
+Discovery Prototype: All functionalities are combined into a single service prototype to demonstrate core capabilities.
 
 ### Single Lambda with Endpoints
 

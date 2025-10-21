@@ -3,7 +3,7 @@ import logging
 import os
 import pandas as pd
 from typing import Any, List, Dict, cast
-from pipeline.gp_pipeline import run
+from pipeline.emis.raw_to_igconformant import run
 from common.cohort_membership import read_cohort_members
 
 # Configure logging

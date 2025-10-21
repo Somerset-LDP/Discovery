@@ -4,8 +4,8 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from aws.gp import handler as handler_module
-from aws.gp.handler import lambda_handler
+from aws.pipeline.emis.raw_to_igconformant import handler as handler_module
+from aws.pipeline.emis.raw_to_igconformant.handler import lambda_handler
 
 # Fixtures
 

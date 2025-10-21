@@ -1,11 +1,11 @@
-# Pipelines
+# Layers
 
 This is where all data ingestion pipelines live.
 
 Each layer in LDP's storage model has a corresponding directory i.e.
 
 ```
-pipelines/
+layers/
 └── ig-conformance/
 └── pseudo/
 └── canonical/

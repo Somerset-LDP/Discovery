@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 import logging
 from unittest.mock import patch
-from pipeline.emis.raw_to_igconformant import run
+from pipeline.emis_gprecord import run
 
 
 # Fixtures
@@ -446,7 +446,7 @@ def test_duplicate_nhs_numbers_in_records(sample_cohort_store):
 
 
 # Cohort Membership Check Scenarios (29-33)
-@patch('pipeline.emis.raw_to_igconformant.is_cohort_member')
+@patch('pipeline.emis_gprecord.is_cohort_member')
 def test_cohort_membership_check_returns_true(mock_is_cohort_member, sample_cohort_store):
     """Test NHS number found in cohort store"""
     mock_is_cohort_member.return_value = True
@@ -461,7 +461,7 @@ def test_cohort_membership_check_returns_true(mock_is_cohort_member, sample_coho
     mock_is_cohort_member.assert_called_once()
 
 
-@patch('pipeline.emis.raw_to_igconformant.is_cohort_member')
+@patch('pipeline.emis_gprecord.is_cohort_member')
 def test_cohort_membership_check_returns_false(mock_is_cohort_member, sample_cohort_store):
     """Test NHS number not found in cohort store"""
     mock_is_cohort_member.return_value = False
@@ -476,7 +476,7 @@ def test_cohort_membership_check_returns_false(mock_is_cohort_member, sample_coh
     mock_is_cohort_member.assert_called_once()
 
 
-@patch('pipeline.emis.raw_to_igconformant.is_cohort_member')
+@patch('pipeline.emis_gprecord.is_cohort_member')
 def test_cohort_membership_check_raises_exception(mock_is_cohort_member, sample_cohort_store):
     """Test error in cohort membership validation"""
     mock_is_cohort_member.side_effect = Exception("Cohort check failed")

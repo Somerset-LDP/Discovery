@@ -3,6 +3,7 @@ Tests for cohort_membership module
 """
 import pytest
 import pandas as pd
+import logging
 from pathlib import Path
 from unittest.mock import patch
 import tempfile
@@ -241,19 +242,26 @@ def test_nhs_number_not_in_cohort(valid_cohort_series):
     assert result is False
 
 
-def test_empty_nhs_number(valid_cohort_series):
-    """Test ValueError for empty NHS number"""
-    with pytest.raises(ValueError, match="NHS number cannot be None or empty"):
-        is_cohort_member('', valid_cohort_series)
+def test_empty_nhs_number(valid_cohort_series, caplog):
+    """Test that empty NHS numbers return False and log warning"""
+    with caplog.at_level(logging.WARNING):
+        result = is_cohort_member('', valid_cohort_series)
+        assert result is False
+        assert "NHS number is None or empty" in caplog.text
     
-    with pytest.raises(ValueError, match="NHS number cannot be None or empty"):
-        is_cohort_member(None, valid_cohort_series)  # type: ignore
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        result = is_cohort_member(None, valid_cohort_series)  # type: ignore
+        assert result is False
+        assert "NHS number is None or empty" in caplog.text
 
 
-def test_whitespace_only_nhs_number(valid_cohort_series):
-    """Test ValueError for whitespace-only NHS number"""
-    with pytest.raises(ValueError, match="NHS number cannot be None or empty"):
-        is_cohort_member('   ', valid_cohort_series)
+def test_whitespace_only_nhs_number(valid_cohort_series, caplog):
+    """Test that whitespace-only NHS numbers return False and log warning"""
+    with caplog.at_level(logging.WARNING):
+        result = is_cohort_member('   ', valid_cohort_series)
+        assert result is False
+        assert "NHS number is None or empty" in caplog.text
 
 
 def test_invalid_cohort_members_type():

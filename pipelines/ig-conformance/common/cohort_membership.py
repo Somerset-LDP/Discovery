@@ -1,5 +1,6 @@
 import pandas as pd
 from urllib.error import URLError
+import logging
 
 def read_cohort_members(location: str) -> pd.Series:
     """
@@ -97,11 +98,13 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
         bool: True if the NHS number is in the cohort, False otherwise.
         
     Raises:
-        ValueError: If nhs_number is None or empty.
         TypeError: If cohort_members is not a pandas Series.
     """
+    logger = logging.getLogger(__name__)
+    
     if not nhs_number or str(nhs_number).strip() == "":
-        raise ValueError("NHS number cannot be None or empty")
+        logger.warning(f"NHS number is None or empty, returning False for cohort membership check")
+        return False
     
     if not isinstance(cohort_members, pd.Series):
         raise TypeError("cohort_members must be a pandas Series")

@@ -105,7 +105,7 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
     
     if not isinstance(cohort_members, pd.Series):
         raise TypeError("cohort_members must be a pandas Series")
-    
+        
     if cohort_members.empty:
         return False
     

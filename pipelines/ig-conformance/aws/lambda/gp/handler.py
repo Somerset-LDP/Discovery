@@ -1,6 +1,8 @@
 import json
 import logging
+import os
 from pipeline.gp_pipeline import run
+from common.cohort_membership import read_cohort_members
 
 # Configure logging
 logger = logging.getLogger()
@@ -20,9 +22,16 @@ def lambda_handler(event, context):
     try:
         logger.info("Starting GP pipeline execution")
         logger.info(f"Event: {json.dumps(event, default=str)}")
-        
-        # Call the pipeline run method
-        result = run()
+
+        # read the cohort store
+        cohort_store_location = os.getenv("COHORT_STORE")
+        if not cohort_store_location:
+            raise ValueError(f"COHORT_STORE env var not set")
+
+        # read the gp record file
+        # TODO: implement reading GP records from S3
+
+        result = run(read_cohort_members(cohort_store_location), [])
         
         logger.info("GP pipeline executed successfully")
         

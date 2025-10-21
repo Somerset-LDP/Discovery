@@ -19,20 +19,15 @@ def test_data_dir():
 
 
 @pytest.fixture
-def valid_cohort_file(test_data_dir):
-    """Return path to valid cohort CSV"""
-    return test_data_dir / "valid_cohort.csv"
-
-
-@pytest.fixture
 def valid_cohort_series():
     """Return a valid pandas Series with NHS numbers for testing is_cohort_member"""
     return pd.Series(['1234567890', '2345678901', '3456789012'], name='nhs')
 
 
 # File/URL access tests
-def test_read_valid_local_file(valid_cohort_file):
+def test_read_valid_local_file(test_data_dir):
     """Test reading a valid local CSV file"""
+    valid_cohort_file = test_data_dir / "valid_cohort.csv"
     result = read_cohort_members(str(valid_cohort_file))
     
     assert isinstance(result, pd.Series)
@@ -41,8 +36,9 @@ def test_read_valid_local_file(valid_cohort_file):
     assert '5678901234' in result.values
 
 
-def test_read_with_file_protocol(valid_cohort_file):
+def test_read_with_file_protocol(test_data_dir):
     """Test reading with file:// protocol"""
+    valid_cohort_file = test_data_dir / "valid_cohort.csv"
     file_url = f"file://{valid_cohort_file}"
     result = read_cohort_members(file_url)
     
@@ -289,8 +285,9 @@ def test_whitespace_matching():
 
 
 # Integration tests combining read_cohort_members and is_cohort_member
-def test_end_to_end_workflow(valid_cohort_file):
+def test_end_to_end_workflow(test_data_dir):
     """Test complete workflow: read cohort then check membership"""
+    valid_cohort_file = test_data_dir / "valid_cohort.csv"
     # Read cohort members
     cohort_members = read_cohort_members(str(valid_cohort_file))
     

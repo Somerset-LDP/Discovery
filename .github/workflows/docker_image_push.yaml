@@ -1,0 +1,22 @@
+name: Build and Push Image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: delivops/ecr-build-action@v0.0.10
+        with:
+          image_name: "somerset-647582858282-dev-account-ecr"
+          tag: "latest,sha-${{ github.sha }}"
+          build_args: "ENV=dev,VERSION=${{ github.sha }}"
+          aws_account_id: "647582858282"
+          aws_region: "eu-west-2"
+          dockerfile_path: "layers/ig-conformance/aws/lambdas/emis_gprecord/Dockerfile"
+          aws_role: "GithubRunnerRole"

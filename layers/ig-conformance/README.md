@@ -14,8 +14,15 @@ docker buildx build \
   --secret id=ssl-certs,src=/etc/ssl/certs/ca-certificates.crt \
   --platform linux/amd64 \
   --provenance=false \
-  -t emis_gprecord:0.0.1 \
+  -t emis_gprecord:latest \
   -f aws/lambdas/emis_gprecord/Dockerfile .
+```
+
+Smoke testing the image
+```
+docker run -d --platform linux/amd64 -p 9000:8080 emis_gprecord:0.0.1
+
+curl "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{}'
 ```
 
 from abc import ABC, abstractmethod

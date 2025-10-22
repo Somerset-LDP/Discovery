@@ -40,21 +40,20 @@ def lambda_handler(event, context):
             # Write the filtered results to output file
             if cohort_member_records:
                 _write_gp_records(cohort_member_records, output_location)
-                logger.info(f"Wrote {len(cohort_member_records)} filtered records to {output_location}")
+                logger.info(f"Wrote {len(cohort_member_records)} records to {output_location}")
 
             # TODO - delete the gp records as the LDP is not permitted to store raw data that holds plain text PII
 
             logger.info("GP pipeline executed successfully")
+            logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
             
             response = _get_response(
                 message='GP pipeline executed successfully',
                 request_id=context.aws_request_id,
-                status_code=200
+                status_code=200,
+                records_processed=len(gp_records),
+                records_retained=len(cohort_member_records)               
             )
-
-            response['records_processed'] = len(gp_records)
-            response['records_filtered'] = len(cohort_member_records)
-            response['output_location'] = output_location
     
         else:
             response = _get_response(
@@ -105,7 +104,7 @@ def _write_gp_records(records: List[Dict[str, Any]], location: str) -> None:
     # Write to CSV with same format as input
     df.to_csv(location, index=False)
 
-def _get_response(message: str, request_id: str, status_code: int) -> Dict[str, Any]:
+def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> Dict[str, Any]:
     """
     Helper function to create a standardized error response.
     
@@ -117,10 +116,15 @@ def _get_response(message: str, request_id: str, status_code: int) -> Dict[str, 
     Returns:
         dict: Standardized error response
     """
+    body_data = {
+        'message': message,
+        'requestId': request_id
+    }
+    
+    # Add any additional key-value pairs
+    body_data.update(kwargs)
+ 
     return {
         'statusCode': status_code,
-        'body': json.dumps({
-            'message': message,
-            'requestId': request_id
-        })
+        'body': json.dumps(body_data)
     }

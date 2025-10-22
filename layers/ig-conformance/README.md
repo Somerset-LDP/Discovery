@@ -1,3 +1,23 @@
+## Building the Docker image
+
+We want it to run on AWS
+
+https://docs.aws.amazon.com/lambda/latest/dg/python-image.html#python-image-instructions
+
+### ZScaler (local build)
+Note that the secret must be called `ssl-certs`
+
+```
+cd Discovery/layers/ig-conformance
+
+docker buildx build \
+  --secret id=ssl-certs,src=/etc/ssl/certs/ca-certificates.crt \
+  --platform linux/amd64 \
+  --provenance=false \
+  -t emis_gprecord:0.0.1 \
+  -f aws/lambdas/emis_gprecord/Dockerfile .
+```
+
 from abc import ABC, abstractmethod
 
 class PseudonymisationService(ABC):

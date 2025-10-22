@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: delivops/ecr-build-action@v0.0.10
         with:
-          image_name: "647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr/test"
+          image_name: "somerset-647582858282-dev-account-ecr/test"
           tag: "latest,sha-${{ github.sha }}"
           build_args: "ENV=dev,VERSION=${{ github.sha }}"
           aws_account_id: "647582858282"

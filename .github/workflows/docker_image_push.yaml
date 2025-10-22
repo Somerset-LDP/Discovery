@@ -11,7 +11,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: delivops/ecr-build-push-action@v0.1.0
+      - uses: delivops/ecr-build-action@v0.1.0
         with:
           image_name: "647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr/test"
           tag: "latest,sha-${{ github.sha }}"

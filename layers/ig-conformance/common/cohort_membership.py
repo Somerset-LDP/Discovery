@@ -1,5 +1,6 @@
 import pandas as pd
 from urllib.error import URLError
+from common.filesystem import read_file
 import logging
 
 def read_cohort_members(location: str) -> pd.Series:
@@ -28,8 +29,8 @@ def read_cohort_members(location: str) -> pd.Series:
     """ 
     try:
         # Read CSV with nhs column as string to preserve leading zeros
-        df = pd.read_csv(location, dtype={'nhs': str})
-        
+        df = read_file(location)
+
         if df.empty:
             raise ValueError(f"No data found in cohort file")
         

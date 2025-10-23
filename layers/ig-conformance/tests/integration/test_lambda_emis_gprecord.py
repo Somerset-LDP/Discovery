@@ -27,7 +27,6 @@ def create_lambda_container_with_env(cohort_store_path, input_location_path, out
 
     # Map host files to container paths
     container.with_volume_mapping(str(cohort_store_path), "/cohort_store.csv", "ro")  # read-only
-    container.with_volume_mapping(str(input_location_path), "/input.csv", "ro")  # read-only
     container.with_volume_mapping(output_location_path, "/output", "rw")  # read-write
 
     # Set environment variables at container creation
@@ -38,6 +37,15 @@ def create_lambda_container_with_env(cohort_store_path, input_location_path, out
     container.waiting_for(HttpWaitStrategy(8080, "/2015-03-31/functions/function/invocations").for_status_code_matching(lambda status_code: 200 <= status_code < 600))
 
     with container as running_container:
+        # our handler expects the input file to be deletable, so we need to copy it into the container
+        container_id = running_container.get_wrapped_container().id
+        
+        cp_command = f"docker cp {input_location_path} {container_id}:/input.csv"
+        
+        result = os.system(cp_command)
+        if result != 0:
+            raise Exception(f"Docker cp failed with exit code: {result}")
+        
         yield running_container
 
 @pytest.fixture
@@ -96,6 +104,23 @@ def create_test_workspace(cohort_file_path, input_file_path):
         # Clean up temporary directory
         shutil.rmtree(temp_dir, ignore_errors=True)
 
+def _file_exists_in_container(container, file_path: str) -> bool:
+    """
+    Check if a file exists in the container.
+    
+    Args:
+        container: The running container instance
+        file_path: Path to the file inside the container
+        
+    Returns:
+        bool: True if file exists, False otherwise
+    """
+    try:
+        result = container.exec(f"ls -la {file_path}")
+        return result.exit_code == 0
+    except Exception:
+        return False        
+
 
 def test_successful_processing_with_valid_data(test_files):
     """Test 1: Successful Processing with Valid Data"""
@@ -103,6 +128,7 @@ def test_successful_processing_with_valid_data(test_files):
         
         with create_lambda_container_with_env(cohort_copy, input_copy, output_dir) as container:
 
+            assert _file_exists_in_container(container, "/input.csv"), "Input file should exist before processing"
             result = invoke_lambda(container)
 
             print("=== FULL RESPONSE ===")
@@ -120,6 +146,7 @@ def test_successful_processing_with_valid_data(test_files):
             assert "output_file" in response_body
             assert response_body["records_processed"] == 5, f"Expected 5 records processed, got {response_body['records_processed']}"
             assert response_body["records_retained"] == 3, f"Expected 3 records retained, got {response_body['records_retained']}"
+            assert not _file_exists_in_container(container, "/input.csv"), "Input file should be deleted after processing"
 
 
 def test_successful_processing_with_empty_filtered_results(test_files):

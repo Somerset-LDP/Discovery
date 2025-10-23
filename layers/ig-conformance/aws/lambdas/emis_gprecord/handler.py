@@ -2,46 +2,18 @@ from datetime import datetime
 import json
 import logging
 import os
+from sys import path
 import fsspec
 import fsspec.utils
 import pandas as pd
-from typing import Any, List, Dict, cast, Tuple
+from typing import Any, List, Dict, TextIO, cast, Tuple
 from pipeline.emis_gprecord import run
 from common.cohort_membership import read_cohort_members
+from common.filesystem import read_file, delete_file
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-def _retain_cohort_members(cohort_store_location, gp_records_store_location) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
-    Main function to retain GP records for cohort members.
-    Reads environment variables for input/output locations.
-    """
-    cohort_member_records = []
-    gp_records = []
-
-    if cohort_store_location and gp_records_store_location:
-        gp_records = _read_gp_records(gp_records_store_location)
-        cohort_store = read_cohort_members(cohort_store_location)
-
-        cohort_member_records = run(cohort_store, gp_records)
-        logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
-
-    return (cohort_member_records, gp_records)
-
-def _write_output(cohort_member_records, output_location) -> str | None:
-    # Write the filtered results to output file
-    output_file = None
-    if cohort_member_records:
-        output_file = _write_gp_records(cohort_member_records, output_location)
-        logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
-
-    return output_file
-
-def _delete_input(gp_records_store_location):
-    # TODO - implement deletion of input GP records
-    return
 
 def lambda_handler(event, context):
     """
@@ -67,14 +39,10 @@ def lambda_handler(event, context):
         if cohort_store_location and gp_records_store_location and output_location:
             cohort_member_records, gp_records = _retain_cohort_members(cohort_store_location, gp_records_store_location)
             output_file = _write_output(cohort_member_records, output_location)
-            _delete_input(gp_records_store_location)
-
-
-            # TODO - delete the gp records as the LDP is not permitted to store raw data that holds plain text PII
+            delete_file(gp_records_store_location)
 
             logger.info("GP pipeline executed successfully")
 
-            
             response = _get_response(
                 message='GP pipeline executed successfully',
                 request_id=context.aws_request_id,
@@ -102,14 +70,33 @@ def lambda_handler(event, context):
 
     return response
 
+def _retain_cohort_members(cohort_store_location, gp_records_store_location) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Main function to retain GP records for cohort members.
+    Reads environment variables for input/output locations.
+    """
+    cohort_member_records = []
+    gp_records = []
+
+    if cohort_store_location and gp_records_store_location:
+        gp_records = _read_gp_records(gp_records_store_location)
+        cohort_store = read_cohort_members(cohort_store_location)
+
+        cohort_member_records = run(cohort_store, gp_records)
+        logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
+
+    return (cohort_member_records, gp_records)
+
+# File system methods
+
 def _read_gp_records(location: str) -> List[Dict[str, Any]]:
-    df = pd.read_csv(location, dtype={'nhs': str})
+    df = read_file(location)
+    #df = pd.read_csv(location, dtype={'nhs': str})
 
     # Ensure all column names are strings
     df.columns = df.columns.astype(str)    
 
     return cast(List[Dict[str, Any]], df.to_dict(orient='records'))
-
 
 def _write_gp_records(records: List[Dict[str, Any]], location: str) -> str:
     """
@@ -150,6 +137,15 @@ def _write_gp_records(records: List[Dict[str, Any]], location: str) -> str:
         raise IOError(f"Failed to write GP records to {file_path}: {str(e)}")
 
     return file_path
+
+def _write_output(cohort_member_records, output_location) -> str | None:
+    # Write the filtered results to output file
+    output_file = None
+    if cohort_member_records:
+        output_file = _write_gp_records(cohort_member_records, output_location)
+        logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
+
+    return output_file
 
 def _get_output_dir(location: str) -> str | None:
     """
@@ -228,6 +224,8 @@ def _get_output_file(dir_path: str, file_name_prefix: str) -> str | None:
         raise IOError(f"Failed to generate output file at {file_path}: {e}")
 
     return file_path
+
+# HTTP response helpers
 
 def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> Dict[str, Any]:
     """

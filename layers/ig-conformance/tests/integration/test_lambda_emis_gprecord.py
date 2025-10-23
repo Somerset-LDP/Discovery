@@ -1,16 +1,14 @@
 import json
 import os
-from urllib import response
 import pytest
 from pathlib import Path
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import HttpWaitStrategy
 import requests
 import tempfile
-import time
+import shutil
 from contextlib import contextmanager
         
-
 @contextmanager
 def create_lambda_container_with_env(cohort_store_path, input_location_path, output_location_path):
     """
@@ -33,9 +31,9 @@ def create_lambda_container_with_env(cohort_store_path, input_location_path, out
     container.with_volume_mapping(output_location_path, "/output", "rw")  # read-write
 
     # Set environment variables at container creation
-    container.with_env("COHORT_STORE", "/cohort_store.csv")
-    container.with_env("INPUT_LOCATION", "/input.csv")
-    container.with_env("OUTPUT_LOCATION", "/output/result.csv")
+    container.with_env("COHORT_STORE", "file:///cohort_store.csv")
+    container.with_env("INPUT_LOCATION", "file:///input.csv")
+    container.with_env("OUTPUT_LOCATION", "file:///output")
 
     container.waiting_for(HttpWaitStrategy(8080, "/2015-03-31/functions/function/invocations").for_status_code_matching(lambda status_code: 200 <= status_code < 600))
 
@@ -66,26 +64,62 @@ def invoke_lambda(container, timeout: int = 30):
     response = requests.post(url, json={}, timeout=timeout)
     return response.json()
 
+@contextmanager
+def create_test_workspace(cohort_file_path, input_file_path):
+    """
+    Create a temporary workspace with copies of test files.
+    
+    Args:
+        cohort_file_path: Path to original cohort file
+        input_file_path: Path to original input file
+        
+    Yields:
+        tuple: (cohort_copy_path, input_copy_path, output_dir_path)
+    """
+    # Create temporary directory
+    temp_dir = tempfile.mkdtemp(prefix="lambda_test_")
+    
+    try:
+        # Create copies of input files
+        cohort_copy = os.path.join(temp_dir, "cohort_copy.csv")
+        input_copy = os.path.join(temp_dir, "input_copy.csv")
+        
+        shutil.copy2(cohort_file_path, cohort_copy)
+        shutil.copy2(input_file_path, input_copy)
+        
+        # Output directory (same temp dir)
+        output_dir = temp_dir
+        
+        yield cohort_copy, input_copy, output_dir
+        
+    finally:
+        # Clean up temporary directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 def test_successful_processing_with_valid_data(test_files):
     """Test 1: Successful Processing with Valid Data"""
-    with create_lambda_container_with_env(test_files["valid_cohort"],  test_files["valid_gp_records"], tempfile.mkdtemp()) as container:
+    with create_test_workspace(test_files["valid_cohort"], test_files["valid_gp_records"]) as (cohort_copy, input_copy, output_dir):
+        
+        with create_lambda_container_with_env(cohort_copy, input_copy, output_dir) as container:
 
-        result = invoke_lambda(container)
+            result = invoke_lambda(container)
 
-        #print(f"Lambda response: {result}")
-        print("=== FULL RESPONSE ===")
-        print(json.dumps(result, indent=2))   
+            print("=== FULL RESPONSE ===")
+            print(json.dumps(result, indent=2))   
 
-        logs = container.get_logs()
-        print("=== CONTAINER LOGS ===")
-        print(logs)             
+            logs = container.get_logs()
+            print("=== CONTAINER LOGS ===")
+            print(logs)             
 
-        assert result["statusCode"] == 200
-        response_body = json.loads(result["body"])
-        assert "records_processed" in response_body
-        assert "records_retained" in response_body
-        assert response_body["records_processed"] > 0
+            assert result["statusCode"] == 200
+
+            response_body = json.loads(result["body"])
+            assert "records_processed" in response_body
+            assert "records_retained" in response_body
+            assert "output_file" in response_body
+            assert response_body["records_processed"] == 5, f"Expected 5 records processed, got {response_body['records_processed']}"
+            assert response_body["records_retained"] == 3, f"Expected 3 records retained, got {response_body['records_retained']}"
 
 
 def test_successful_processing_with_empty_filtered_results(test_files):

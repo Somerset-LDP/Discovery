@@ -131,12 +131,12 @@ def test_successful_processing_with_valid_data(test_files):
             assert _file_exists_in_container(container, "/input.csv"), "Input file should exist before processing"
             result = invoke_lambda(container)
 
-            print("=== FULL RESPONSE ===")
-            print(json.dumps(result, indent=2))   
+            #print("=== FULL RESPONSE ===")
+            #print(json.dumps(result, indent=2))   
 
-            logs = container.get_logs()
-            print("=== CONTAINER LOGS ===")
-            print(logs)             
+            #logs = container.get_logs()
+            #print("=== CONTAINER LOGS ===")
+            #print(logs)             
 
             assert result["statusCode"] == 200
 
@@ -148,23 +148,40 @@ def test_successful_processing_with_valid_data(test_files):
             assert response_body["records_retained"] == 3, f"Expected 3 records retained, got {response_body['records_retained']}"
             assert not _file_exists_in_container(container, "/input.csv"), "Input file should be deleted after processing"
 
-
 def test_successful_processing_with_empty_filtered_results(test_files):
     """Test 2: Successful Processing with Empty Filtered Results"""
-    with create_lambda_container_with_env(test_files["empty_cohort"],  test_files["valid_gp_records"], tempfile.mkdtemp()) as container:
+    with create_test_workspace(test_files["empty_cohort"], test_files["valid_gp_records"]) as (cohort_copy, input_copy, output_dir):
+        
+        with create_lambda_container_with_env(cohort_copy, input_copy, output_dir) as container:
 
-        result = invoke_lambda(container)
-  
-        assert result["statusCode"] == 200
-        response_body = json.loads(result["body"])
-        assert response_body["records_retained"] == 0
+            assert _file_exists_in_container(container, "/input.csv"), "Input file should exist before processing"
+            result = invoke_lambda(container)
 
+            assert result["statusCode"] == 500
+            
+            response_body = json.loads(result["body"])
+            assert "records_retained" not in response_body
+            assert "output_file" not in response_body
+            assert "message" in response_body
+            assert response_body["message"] == "GP pipeline execution failed: Cohort file appears to be empty"
+            assert _file_exists_in_container(container, "/input.csv"), "Input file should be not deleted after unsuccessful processing"
 
 def test_successful_processing_with_no_input_records(test_files):
     """Test 3: Successful Processing with No Input Records"""
-    with create_lambda_container_with_env(test_files["valid_cohort"],  test_files["empty_gp_records"], tempfile.mkdtemp()) as container:    
-        result = invoke_lambda(container)
-    
-        assert result["statusCode"] == 200
-        response_body = json.loads(result["body"])
-        assert response_body["records_processed"] == 0
+    with create_test_workspace(test_files["valid_cohort"], test_files["empty_gp_records"]) as (cohort_copy, input_copy, output_dir):
+        
+        with create_lambda_container_with_env(cohort_copy, input_copy, output_dir) as container:
+
+            assert _file_exists_in_container(container, "/input.csv"), "Input file should exist before processing"
+            
+            result = invoke_lambda(container)
+
+            assert result["statusCode"] == 200
+            
+            response_body = json.loads(result["body"])
+            assert "records_processed" in response_body
+            assert "records_retained" in response_body
+            assert "output_file" in response_body
+            assert response_body["records_processed"] == 0, f"Expected 0 records processed, got {response_body['records_processed']}"
+            assert not _file_exists_in_container(container, "/input.csv"), "Input file should be deleted after processing"
+

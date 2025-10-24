@@ -1,8 +1,5 @@
 FROM public.ecr.aws/lambda/python:3.11
 
-# Disable SSL verification for yum
-RUN echo "sslverify=0" >> /etc/yum.conf
-
 # Install build dependencies for cryptography
 RUN yum install -y gcc libffi-devel zip
 
@@ -13,8 +10,6 @@ RUN mkdir -p python
 # Copy requirements and install
 COPY layer-requirements.txt .
 RUN pip install --upgrade pip cffi -r layer-requirements.txt -t python/
-RUN pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org \
-    --upgrade pip cffi -r layer-requirements.txt -t python/
 
 # Create zip file
 RUN zip -r /layer.zip python/

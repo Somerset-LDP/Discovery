@@ -11,57 +11,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v3
+      - uses: delivops/ecr-build-action@v0.0.10
         with:
-          role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
-          aws-region: eu-west-2
-
-      - name: Login to Amazon ECR
-        id: login_ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      - name: Prepare tags
-        id: prepare_tags
-        shell: bash
-        run: |
-          TAGS="latest,sha-${{ github.sha }}"
-          REGISTRY="${{ steps.login_ecr.outputs.registry || 'local' }}"
-          PREFIX="${REGISTRY}/somerset-647582858282-dev-account-ecr:"
-          IFS=',' read -ra ADDR <<< "$TAGS"
-          IMAGES=""
-          for i in "${ADDR[@]}"; do
-            i_trimmed="$(echo "$i" | xargs)"
-            if [ -z "$IMAGES" ]; then
-              IMAGES="${PREFIX}${i_trimmed}"
-            else
-              IMAGES="${IMAGES},${PREFIX}${i_trimmed}"
-            fi
-          done
-          echo "tags=$IMAGES" >> "$GITHUB_OUTPUT"
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build (and optionally push) Docker image
-        uses: docker/build-push-action@v6.18.0
-        with:
-          context: "."
-          target: ""
-          push: true
-          pull: true
-          no-cache: false
-          tags: ${{ steps.prepare_tags.outputs.tags }}
-          build-args: ""
-          file: "layers/ig-conformance/aws/lambdas/emis_gprecord/Dockerfile"
-          platforms: "linux/amd64"
-          cache-from: 'type=gha'
-          cache-to: 'type=gha,mode=max'
-      # - uses: delivops/ecr-build-action@v0.0.10
-      #   with:
-      #     image_name: "somerset-647582858282-dev-account-ecr"
-      #     tag: "latest,sha-${{ github.sha }}"
-      #     build_args: "ENV=dev,VERSION=${{ github.sha }}"
-      #     aws_account_id: "647582858282"
-      #     aws_region: "eu-west-2"
-      #     dockerfile_path: "layers/ig-conformance/aws/lambdas/emis_gprecord/Dockerfile"
-      #     aws_role: "GithubRunnerRole"
+          image_name: "somerset-647582858282-dev-account-ecr"
+          tag: "latest,sha-${{ github.sha }}"
+          build_args: "ENV=dev,VERSION=${{ github.sha }}"
+          aws_account_id: "647582858282"
+          aws_region: "eu-west-2"
+          dockerfile_path: "layers/ig-conformance/aws/lambdas/emis_gprecord/Dockerfile"
+          aws_role: "GithubRunnerRole"

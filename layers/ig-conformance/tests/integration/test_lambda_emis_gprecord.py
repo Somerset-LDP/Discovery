@@ -8,7 +8,12 @@ import requests
 import tempfile
 import shutil
 from contextlib import contextmanager
-        
+
+# Tests cover - 
+# Does the service start up correctly from the container image?
+# Does sending an HTTP request produce the correct response?
+# Does the container expose the right port
+     
 @contextmanager
 def create_lambda_container_with_env(cohort_store_path, input_location_path, output_location_path):
     """

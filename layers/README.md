@@ -6,11 +6,20 @@ Each layer in LDP's storage model has a corresponding directory i.e.
 
 ```
 layers/
-└── ig-conformance/
-└── pseudo/
-└── canonical/
+├── ig-conformance/ 
+│   └─ holds data that meets IG requirements
+├── pseudonymised/
+│   └─ holds data where PII has been pseudonymised
+├── canonical/
+    └─ holds data that has been standardised into a canonical model 
 ```
 
-The pipelines under each dir are intended to output data into the layer that the dir is named after. As an example all pipelines under the `pseudo` dir should write data to the pseudo layer.
+The pipelines under each dir are intended to output data into the layer that the dir is named after. As an example all pipelines under the `pseudonymised` dir should write data to the pseudonymised layer.
 
-Within each dir the individual pipeline scripts can be found. They should be named for `[source system]_[source entity].py`
+**More info -**
+* [IG Conformance layer](./ig-conformance/README.md)
+* [Pseudonymised layer](./pseudonymised/README.md)
+* [Canonical layer](./canonical/README.md)
+
+## Pipeline naming convention
+Each layer holds the pipelines that are designed to feed that layer. Each pipeline script should ideally follow the naming convention `[source system]_[source entity].py`

@@ -27,10 +27,10 @@ The LDP is built on **progressive refinement of data** with each layer having a 
 ```mermaid
 flowchart LR
     A["🔴 Raw Data<br/>• PII mixed<br/>• Untrusted<br/>• Variable quality<br/>• Unsafe"] 
-    B["🟡 IG Conformant<br/>• Chort filtering<br/>• Special category data replaced"]    
-    C["🟡 Pseudonymised<br/>• PII removed<br/>• Feed-native<br/>• Minimal processing<br/>• Data added<br/>• Safe but unrefined"]
-    D["🟢 Canonical<br/>• Canonical<br/>• Validated<br/>• Conflict resolved<br/>• Business entities"]
-    E["🔵 Derived<br/>• Optimized<br/>• Aggregated<br/>• Performant<br/>• Consumer ready"]
+    B["🟡 IG Conformant<br/>• Apply IG rules<br/>• Minimal changes from raw form<br/>• Chort filtering<br/>• Special category data replaced"]    
+    C["🟢 Pseudonymised<br/>• PII removed<br/>• Feed-native<br/>• Minimal processing<br/>• Data added<br/>• Safe but unrefined"]
+    D["🔵 Canonical<br/>• Canonical<br/>• Validated<br/>• Conflict resolved<br/>• Business entities"]
+    E[" Derived<br/>• Optimized<br/>• Aggregated<br/>• Performant<br/>• Consumer ready"]
     
     A -->|"Never persisted"| B
     B -->|"IG compliance"| C    

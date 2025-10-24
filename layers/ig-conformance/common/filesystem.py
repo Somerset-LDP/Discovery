@@ -9,7 +9,8 @@ def read_file(path: str) -> pd.DataFrame:
         if isinstance(file, list):
             raise ValueError(f"Expected one file, got {len(file)}: {path}")
 
-        df = pd.read_csv(file)
+        # Read CSV with all columns as strings to preserve leading zeros and handle data consistently
+        df = pd.read_csv(file, dtype=str, keep_default_na=False, na_values=['', 'NULL', 'null', 'None'])
 
     return df
 

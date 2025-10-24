@@ -44,16 +44,17 @@ def read_cohort_members(location: str) -> pd.Series:
         # Get nhs column and handle nulls/whitespace
         nhs_numbers = df["nhs"]
         
-        # Filter out null, NaN, and whitespace-only values
-        valid_nhs = nhs_numbers.dropna()
-        valid_nhs = valid_nhs[valid_nhs.astype(str).str.strip() != '']
-        valid_nhs = valid_nhs[valid_nhs.astype(str).str.strip() != 'nan']
+        # Filter out null, NaN, empty strings, and whitespace-only values
+        # Since nhs is now string type, pd.isna() handles <NA> values properly
+        valid_nhs = nhs_numbers[~pd.isna(nhs_numbers)]
+        valid_nhs = valid_nhs[valid_nhs.str.strip() != '']
+        valid_nhs = valid_nhs[valid_nhs.str.strip().str.lower() != 'nan']
         
         if valid_nhs.empty:
             raise ValueError(f"No valid NHS numbers found")
         
-        # Strip whitespace from valid NHS numbers
-        valid_nhs = valid_nhs.astype(str).str.strip()
+        # Strip whitespace from valid NHS numbers (they're already strings)
+        valid_nhs = valid_nhs.str.strip()
                 
         return valid_nhs
         

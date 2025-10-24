@@ -186,44 +186,51 @@ def test_special_characters(test_data_dir):
 
 
 # HTTP/S3 URL scenarios with mocking
-@patch('pandas.read_csv')
-def test_http_url_success(mock_read_csv):
+@patch('fsspec.open')
+def test_http_url_success(mock_fsspec_open):
     """Test successful reading from HTTP URL"""
     # Mock successful HTTP response
-    mock_df = pd.DataFrame({'nhs': ['1234567890', '2345678901']})
-    mock_read_csv.return_value = mock_df
+    import io
+    mock_content = "nhs,name,dob\n1234567890,John Smith,1980-01-15\n2345678901,Jane Doe,1975-06-22\n"
+    mock_file = io.StringIO(mock_content)
+    mock_fsspec_open.return_value.__enter__.return_value = mock_file
     
     result = read_cohort_members('https://example.com/cohort.csv')
     
     assert len(result) == 2
-    mock_read_csv.assert_called_once_with('https://example.com/cohort.csv', dtype={'nhs': str})
+    assert '1234567890' in result.values
+    assert '2345678901' in result.values
 
 
-@patch('pandas.read_csv')
-def test_s3_url_success(mock_read_csv):
+@patch('fsspec.open')
+def test_s3_url_success(mock_fsspec_open):
     """Test successful reading from S3 URL"""
-    mock_df = pd.DataFrame({'nhs': ['1234567890', '2345678901']})
-    mock_read_csv.return_value = mock_df
+    # Mock successful S3 response
+    import io
+    mock_content = "nhs,name,dob\n1234567890,John Smith,1980-01-15\n2345678901,Jane Doe,1975-06-22\n"
+    mock_file = io.StringIO(mock_content)
+    mock_fsspec_open.return_value.__enter__.return_value = mock_file
     
     result = read_cohort_members('s3://bucket/cohort.csv')
     
     assert len(result) == 2
-    mock_read_csv.assert_called_once_with('s3://bucket/cohort.csv', dtype={'nhs': str})
+    assert '1234567890' in result.values
+    assert '2345678901' in result.values
 
 
-@patch('pandas.read_csv')
-def test_connection_error(mock_read_csv):
+@patch('fsspec.open')
+def test_connection_error(mock_fsspec_open):
     """Test ConnectionError for network issues"""
-    mock_read_csv.side_effect = ConnectionError("Network unreachable")
+    mock_fsspec_open.side_effect = ConnectionError("Network unreachable")
     
     with pytest.raises(ConnectionError, match="Unable to connect to location"):
         read_cohort_members('https://example.com/cohort.csv')
 
 
-@patch('pandas.read_csv')
-def test_timeout_error(mock_read_csv):
+@patch('fsspec.open')
+def test_timeout_error(mock_fsspec_open):
     """Test TimeoutError handling"""
-    mock_read_csv.side_effect = TimeoutError("Request timeout")
+    mock_fsspec_open.side_effect = TimeoutError("Request timeout")
     
     with pytest.raises(ConnectionError, match="Unable to connect to location"):
         read_cohort_members('https://example.com/cohort.csv')

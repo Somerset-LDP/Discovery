@@ -1,0 +1,18 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# Install build dependencies for cryptography
+RUN yum install -y gcc libffi-devel zip
+
+# Install dependencies to /opt/python
+WORKDIR /opt
+RUN mkdir -p python
+
+# Copy requirements and install
+COPY layer-requirements.txt .
+RUN pip install --upgrade pip cffi -r layer-requirements.txt -t python/
+
+# Create zip file
+RUN zip -r /layer.zip python/
+
+# Output will be at /layer.zip
+CMD ["/bin/bash"]

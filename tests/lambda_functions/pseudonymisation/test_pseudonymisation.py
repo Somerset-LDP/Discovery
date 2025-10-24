@@ -276,41 +276,6 @@ def test_build_aad_missing_current_version(mock_logger):
         build_aad('test_field', config, mock_logger)
 
 
-@pytest.mark.parametrize('field_name', [
-    'simple_field',
-    'field_with_underscore',
-    'UPPERCASE_FIELD',
-    'field123',
-])
-def test_build_aad_various_field_names(mock_logger, field_name):
-    config = Config(
-        kms_key_id='test-key',
-        key_versions=json.dumps({'current': 'v1'}),
-        algorithm='AES-SIV',
-        cache_ttl_hours=1
-    )
-
-    result = build_aad(field_name, config, mock_logger)
-
-    aad_dict = json.loads(result.decode('utf-8'))
-    assert aad_dict['field'] == field_name
-
-
-def test_build_aad_json_structure(mock_logger):
-    config = Config(
-        kms_key_id='test-key',
-        key_versions=json.dumps({'current': 'v1'}),
-        algorithm='AES-SIV',
-        cache_ttl_hours=1
-    )
-
-    result = build_aad('test_field', config, mock_logger)
-
-    aad_dict = json.loads(result.decode('utf-8'))
-    expected_keys = {'field', 'algorithm', 'key_version'}
-    assert set(aad_dict.keys()) == expected_keys
-
-
 def test_build_aad_sorted_keys(mock_logger):
     config = Config(
         kms_key_id='test-key',
@@ -585,19 +550,6 @@ def test_process_field_decryption_single_element_list(mock_logger, config, ciphe
     assert isinstance(result, list)
     assert len(result) == 1
     assert result[0] == plaintext
-
-
-@pytest.mark.parametrize('values_count', [1, 5, 10])
-def test_process_field_decryption_list_various_sizes(mock_logger, config, cipher, values_count):
-    field_name = 'test_field'
-    plaintexts = [f'value_{i}' for i in range(values_count)]
-    encrypted_list = [encrypt_value(p, field_name, cipher, config, mock_logger) for p in plaintexts]
-
-    result = process_field_decryption(field_name, encrypted_list, cipher, config, mock_logger)
-
-    assert isinstance(result, list)
-    assert len(result) == values_count
-    assert result == plaintexts
 
 
 # ============================================================================

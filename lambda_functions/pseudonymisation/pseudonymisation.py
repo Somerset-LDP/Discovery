@@ -206,6 +206,9 @@ def process_field_encryption(
     log: CorrelationLogger
 ) -> Union[str, List[str]]:
     if isinstance(field_value, list):
+        if not field_value:
+            log.warning(f"Empty list provided for field '{field_name}', skipping encryption")
+            raise ValueError(f"Field '{field_name}' contains an empty list - cannot process")
         return [encrypt_value(v, field_name, cipher, config, log) for v in field_value]
     return encrypt_value(field_value, field_name, cipher, config, log)
 
@@ -261,10 +264,10 @@ def validate_event(event: Dict[str, Any], log: CorrelationLogger) -> None:
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    try:
-        correlation_id = event.get('correlation_id')
-        log = CorrelationLogger(logger, correlation_id)
+    correlation_id = event.get('correlation_id')
+    log = CorrelationLogger(logger, correlation_id)
 
+    try:
         validate_event(event, log)
         validate_env_vars(log)
 

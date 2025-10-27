@@ -18,7 +18,7 @@ RUN --mount=type=secret,id=ssl-certs \
 COPY common/ ./common/
 COPY pipeline/emis_gprecord.py ./pipeline/
 COPY pipeline/__init__.py ./pipeline/
-COPY aws/lambdas/emis_gprecord/handler.py ./
+COPY aws/lambdas/emis_gprecord/handler.py ./handler.py
 
 # Set the Lambda handler
 CMD ["handler.lambda_handler"]

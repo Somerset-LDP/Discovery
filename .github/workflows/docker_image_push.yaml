@@ -18,5 +18,5 @@ jobs:
           build_args: "ENV=dev,VERSION=${{ github.sha }}"
           aws_account_id: "647582858282"
           aws_region: "eu-west-2"
-          dockerfile_path: "layers/ig-conformance/aws/lambdas/emis_gprecord/Dockerfile"
+          dockerfile_path: "layers/ig-conformance/Dockerfile"
           aws_role: "GithubRunnerRole"

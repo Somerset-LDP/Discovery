@@ -1,0 +1,6 @@
+nhs,name,dob
+1234567890,John Smith,1980-01-15
+2345678901,Jane Doe,1975-06-22
+1234567890,John Smith Duplicate,1980-01-15
+3456789012,Bob Johnson,1990-03-10
+2345678901,Jane Doe Duplicate,1975-06-22

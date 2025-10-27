@@ -3,13 +3,17 @@ import json
 import logging
 import os
 from sys import path
+from unittest import result
+from urllib import response
 import fsspec
 import fsspec.utils
 import pandas as pd
-from typing import Any, List, Dict, TextIO, cast, Tuple
+from typing import Any, List, Dict, cast, Tuple
 from pipeline.emis_gprecord import run
 from common.cohort_membership import read_cohort_members
 from common.filesystem import read_file, delete_file
+import boto3
+import json
 
 # Configure logging
 logger = logging.getLogger()
@@ -82,7 +86,7 @@ def _retain_cohort_members(cohort_store_location, gp_records_store_location) -> 
         gp_records = _read_gp_records(gp_records_store_location)
         cohort_store = read_cohort_members(cohort_store_location)
 
-        cohort_member_records = run(cohort_store, gp_records)
+        cohort_member_records = run(cohort_store, gp_records, _encrypt)
         logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
 
     return (cohort_member_records, gp_records)
@@ -251,3 +255,56 @@ def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> 
         'statusCode': status_code,
         'body': json.dumps(body_data)
     }
+
+# This function deliberately does not include 
+# - network/timeout handling - Network issues not handled
+# - retry logic - Single attempt only
+def _encrypt(field_name: str, value: str) -> str | None:
+    """
+    Encrypt a value for the given field name.
+    
+    Args:
+        value: The value to encrypt
+        field_name: The name of the field being encrypted
+        
+    Returns:
+        str: The encrypted value
+    """
+    encrypted_value = None
+
+    if not field_name or not value or str(value).lower() in ['nan', 'none', 'null', '']:
+        logger.warning(f"Field name or value is None or empty, cannot encrypt")
+        return None
+    
+    logger.info(f"Encrypting value for field: {field_name}")
+
+    try:
+        # Encrypt a single value
+        lambda_client = boto3.client('lambda')    
+        response = lambda_client.invoke(
+            FunctionName='pseudonymisation-lambda',
+            InvocationType='RequestResponse',
+            Payload=json.dumps({
+                'action': 'encrypt',
+                'field_name': field_name,
+                'field_value': value
+            })
+        )
+
+        if response.statusCode == 200:
+            result = json.loads(response['Payload'].read())
+            if 'field_value' not in result:
+                logger.error(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+                raise ValueError(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+    
+            encrypted_value = result['field_value']        
+            logger.info(f"Encrypted value for field:{field_name}")
+        else:
+            logger.error(f"Failed to encrypt value for field: {field_name}: {response}")
+    except ValueError as e:
+        # Re-raise ValueError (malformed response) to propagate up the call chain
+        raise
+    except Exception as e:
+        logger.error(f"Exception occurred while encrypting value for field: {field_name}: {str(e)}", exc_info=True)
+
+    return encrypted_value

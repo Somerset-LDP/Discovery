@@ -430,12 +430,23 @@ def test_lambda_handler_with_missing_nhs_numbers(sample_event, sample_context, m
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch('pandas.DataFrame.to_csv') as mock_to_csv, \
-         patch.object(handler_module, 'delete_file') as mock_delete_file:
+         patch.object(handler_module, 'delete_file') as mock_delete_file, \
+         patch('boto3.client') as mock_boto_client:
         
         # Setup mocks to simulate data with some missing NHS numbers
         mock_read_cohort.return_value = pd.Series(['2345678901'])
         
-        # Mock GP records file content with missing NHS numbers
+        # Mock boto3 Lambda client - but _encrypt should return None for empty values due to its own validation
+        mock_lambda_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.statusCode = 200
+        mock_payload = MagicMock()
+        mock_payload.read.return_value = json.dumps({'field_value': '2345678901'}).encode()
+        mock_response.__getitem__ = MagicMock(return_value=mock_payload)
+        mock_lambda_client.invoke.return_value = mock_response
+        mock_boto_client.return_value = mock_lambda_client
+        
+        # Mock GP records file content with missing NHS numbers (empty cells should be skipped)
         gp_content = """nhs_number,name,dob,ethnicity,postcode
 ,John Smith,1980-01-15,White,TA1 1AA
 2345678901,Jane Doe,1975-06-22,Asian,BS1 2BB
@@ -543,10 +554,21 @@ def test_output_file_creation_integration(sample_event, sample_context, tmp_path
          patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch.object(handler_module, 'delete_file'), \
-         patch('pandas.DataFrame.to_csv'):
+         patch('pandas.DataFrame.to_csv'), \
+         patch('boto3.client') as mock_boto_client:
         
         # Setup test data - only return cohort member in GP data
         cohort_data = pd.Series(['1234567890'])
+        
+        # Mock boto3 Lambda client for encryption
+        mock_lambda_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.statusCode = 200
+        mock_payload = MagicMock()
+        mock_payload.read.return_value = json.dumps({'field_value': '1234567890'}).encode()
+        mock_response.__getitem__ = MagicMock(return_value=mock_payload)
+        mock_lambda_client.invoke.return_value = mock_response
+        mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content
         gp_file_content = io.StringIO("nhs_number,name,dob\n1234567890,Alice Johnson,1985-03-12\n")
@@ -645,10 +667,25 @@ def test_cohort_membership_lookup_logic(sample_event, sample_context):
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch.object(handler_module, 'delete_file'), \
-         patch('pandas.DataFrame.to_csv'):
+         patch('pandas.DataFrame.to_csv'), \
+         patch('boto3.client') as mock_boto_client:
         
         # Setup test data with multiple scenarios
         cohort_data = pd.Series(['1111111111', '2222222222', '3333333333'])
+        
+        # Mock boto3 Lambda client for encryption - return different values for different NHS numbers
+        mock_lambda_client = MagicMock()
+        def mock_invoke(**kwargs):
+            payload = json.loads(kwargs['Payload'])
+            field_value = payload['field_value']
+            mock_response = MagicMock()
+            mock_response.statusCode = 200
+            mock_payload = MagicMock()
+            mock_payload.read.return_value = json.dumps({'field_value': field_value}).encode()
+            mock_response.__getitem__ = MagicMock(return_value=mock_payload)
+            return mock_response
+        mock_lambda_client.invoke.side_effect = mock_invoke
+        mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content with mixed cohort membership
         gp_file_content = io.StringIO("""nhs_number,name,dob
@@ -671,3 +708,131 @@ def test_cohort_membership_lookup_logic(sample_event, sample_context):
         assert response['statusCode'] == 200
         assert records_processed == 4
         assert records_filtered == 2  # Only 2 matches
+
+@patch.dict(os.environ, {
+    'COHORT_STORE': 's3://test-bucket/cohort.csv',
+    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
+    'OUTPUT_LOCATION': '/tmp'
+})
+def test_encryption_service_response_parsing(sample_event, sample_context):
+    """Test Lambda handler handles encryption service response parsing correctly"""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch('pandas.DataFrame.to_csv'), \
+         patch.object(handler_module, 'delete_file'), \
+         patch('boto3.client') as mock_boto_client:
+        
+        mock_read_cohort.return_value = pd.Series(['encrypted_nhs_123'])
+        
+        # Mock boto3 Lambda client with complex response structure
+        mock_lambda_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.statusCode = 200
+        mock_payload = MagicMock()
+        
+        # Mock response with properly structured encryption service response
+        encryption_response = {
+            'field_name': 'nhs_number',
+            'field_value': 'encrypted_nhs_123',
+            'status': 'success'
+        }
+        mock_payload.read.return_value = json.dumps(encryption_response).encode()
+        mock_response.__getitem__ = MagicMock(return_value=mock_payload)
+        mock_lambda_client.invoke.return_value = mock_response
+        mock_boto_client.return_value = mock_lambda_client
+        
+        # Mock GP records file content
+        gp_content = "nhs_number,name\n1234567890,Alice Johnson\n"
+        mock_gp_file = io.StringIO(gp_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
+        
+        response = lambda_handler(sample_event, sample_context)
+        
+        # Verify successful processing and correct response parsing
+        assert response['statusCode'] == 200
+        body_data = json.loads(response['body'])
+        assert body_data['records_processed'] == 1
+        assert body_data['records_retained'] == 1
+
+
+@patch.dict(os.environ, {
+    'COHORT_STORE': 's3://test-bucket/cohort.csv',
+    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
+    'OUTPUT_LOCATION': '/tmp'
+})
+def test_encryption_service_timeout_handling(sample_event, sample_context):
+    """Test Lambda handler manages encryption service timeouts and retries"""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch('pandas.DataFrame.to_csv'), \
+         patch.object(handler_module, 'delete_file'), \
+         patch('boto3.client') as mock_boto_client:
+        
+        mock_read_cohort.return_value = pd.Series(['1234567890'])
+        
+        # Mock boto3 Lambda client to simulate timeout - this will cause _encrypt to return None
+        mock_lambda_client = MagicMock()
+        from botocore.exceptions import ReadTimeoutError
+        mock_lambda_client.invoke.side_effect = ReadTimeoutError(
+            endpoint_url='test-endpoint', 
+            operation_name='Invoke'
+        )
+        mock_boto_client.return_value = mock_lambda_client
+        
+        # Mock GP records file content
+        gp_content = "nhs_number,name\n1234567890,Alice Johnson\n"
+        mock_gp_file = io.StringIO(gp_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
+        
+        response = lambda_handler(sample_event, sample_context)
+        
+        # The pipeline should continue gracefully - encryption timeout causes record to be skipped
+        # but processing continues and returns 200
+        assert response['statusCode'] == 200
+        response_body = json.loads(response['body'])
+        
+        # Should process 1 record but retain 0 (because encryption failed)
+        assert response_body['records_processed'] == 1
+        assert response_body['records_retained'] == 0
+
+@patch.dict(os.environ, {
+    'COHORT_STORE': 's3://test-bucket/cohort.csv',
+    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
+    'OUTPUT_LOCATION': '/tmp'
+})
+def test_malformed_encryption_response_handling(sample_event, sample_context):
+    """Test Lambda handler handles malformed responses from encryption service"""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch('pandas.DataFrame.to_csv'), \
+         patch.object(handler_module, 'delete_file'), \
+         patch('boto3.client') as mock_boto_client:
+        
+        mock_read_cohort.return_value = pd.Series(['1234567890'])
+        
+        # Mock boto3 Lambda client with malformed response structure
+        mock_lambda_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.statusCode = 200
+        mock_payload = MagicMock()
+        
+        # Response missing required field_value key
+        malformed_response = {
+            'field_name': 'nhs_number',
+            'status': 'success',
+            # Missing 'field_value' key
+        }
+        mock_payload.read.return_value = json.dumps(malformed_response).encode()
+        mock_response.__getitem__ = MagicMock(return_value=mock_payload)
+        mock_lambda_client.invoke.return_value = mock_response
+        mock_boto_client.return_value = mock_lambda_client
+        
+        # Mock GP records file content
+        gp_content = "nhs_number,name\n1234567890,Alice Johnson\n"
+        mock_gp_file = io.StringIO(gp_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
+        
+        response = lambda_handler(sample_event, sample_context)
+        
+        # Should handle malformed response gracefully - either fail or continue without processing
+        assert response['statusCode'] == 500

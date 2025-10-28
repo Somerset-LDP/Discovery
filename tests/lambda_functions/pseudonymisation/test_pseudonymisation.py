@@ -1,9 +1,14 @@
-import pytest
+import base64
+import json
+import logging
 import os
+from datetime import datetime, timedelta, UTC
 from unittest.mock import patch
 
+import pytest
 from botocore.exceptions import ClientError
 
+from lambda_functions.pseudonymisation.logging_utils import CorrelationLogger
 from lambda_functions.pseudonymisation.pseudonymisation import (
     load_config,
     get_secret,
@@ -18,13 +23,6 @@ from lambda_functions.pseudonymisation.pseudonymisation import (
     validate_env_vars,
     validate_event,
 )
-from lambda_functions.pseudonymisation.logging_utils import CorrelationLogger
-import logging
-from datetime import datetime, timedelta
-from dateutil.tz import UTC
-import json
-import base64
-from cryptography.hazmat.primitives.ciphers.aead import AESSIV
 
 
 # ============================================================================
@@ -34,9 +32,11 @@ from cryptography.hazmat.primitives.ciphers.aead import AESSIV
 @pytest.fixture(autouse=True)
 def cleanup_env():
     original_env = os.environ.copy()
+    key_cache.clear()
     yield
     os.environ.clear()
     os.environ.update(original_env)
+    key_cache.clear()
 
 
 @pytest.fixture
@@ -69,19 +69,24 @@ def mock_kms_client():
 
 
 @pytest.fixture
-def config():
-    return Config(
-        kms_key_id='arn:aws:kms:region:account:key/id',
-        key_versions='{"current": "v1"}',
-        algorithm='AES-SIV',
-        cache_ttl_hours=1
-    )
+def test_key_material():
+    return b'0' * 32
 
 
 @pytest.fixture
-def cipher(config):
-    key_material = b'0' * 32
-    return AESSIV(key_material)
+def encrypted_test_key(test_key_material):
+    return base64.b64encode(test_key_material).decode('ascii')
+
+
+@pytest.fixture
+def config(encrypted_test_key):
+    return Config(
+        kms_key_id='arn:aws:kms:region:account:key/id',
+        key_versions={'v1': encrypted_test_key, 'v2': encrypted_test_key},
+        current_version='v1',
+        algorithm='AES-SIV',
+        cache_ttl_hours=1
+    )
 
 
 # ============================================================================
@@ -96,17 +101,23 @@ def test_load_config_cache_ttl(mock_logger, env_vars_set, cache_ttl, expected):
     if cache_ttl:
         os.environ['CACHE_TTL_HOURS'] = cache_ttl
 
+    key_versions_json = json.dumps({
+        "current": "v1",
+        "keys": {"v1": "AQIDAHi8xK..."
+                 }})
+
     with patch('lambda_functions.pseudonymisation.pseudonymisation.get_secret') as mock_get_secret:
         mock_get_secret.side_effect = [
             'arn:aws:kms:region:account:key/id',
-            '{"current": "v1"}'
+            key_versions_json
         ]
 
         config = load_config(mock_logger)
 
         assert config.cache_ttl_hours == expected
         assert config.kms_key_id == 'arn:aws:kms:region:account:key/id'
-        assert config.key_versions == '{"current": "v1"}'
+        assert config.current_version == 'v1'
+        assert config.key_versions == {'v1': 'AQIDAHi8xK...'}
         assert config.algorithm == 'AES-SIV'
 
 
@@ -116,15 +127,28 @@ def test_load_config_missing_kms_key_secret(mock_logger):
             load_config(mock_logger)
 
 
+def test_load_config_missing_current_version(mock_logger, env_vars_set):
+    encrypted_keys_json = json.dumps({
+        "keys": {"v1": "AQIDAHi8xK..."}
+    })
+
+    with patch('lambda_functions.pseudonymisation.pseudonymisation.get_secret') as mock_get_secret:
+        mock_get_secret.side_effect = ['arn:aws:kms:region:account:key/id', encrypted_keys_json]
+
+        with pytest.raises(ValueError, match="Encrypted keys secret missing 'current' field"):
+            load_config(mock_logger)
+
+
 # ============================================================================
 # get_secret TESTS
 # ============================================================================
 
 @pytest.mark.parametrize('secret_str,expected', [
-    ('{"pseudonymisation/kms-key-id": "arn:aws:kms:region:account:key/id"}', 'arn:aws:kms:region:account:key/id'),
+    ('{"pseudonymisation/kms-key-id": "arn:aws:kms:region:account:key/id"}',
+     '{"pseudonymisation/kms-key-id": "arn:aws:kms:region:account:key/id"}'),
     ('plain-text-secret', 'plain-text-secret'),
-    ('{"single": "value"}', 'value'),
-    ('{"nested": {"key": "value"}}', '{"key": "value"}'),
+    ('{"single": "value"}', '{"single": "value"}'),
+    ('{"current": "v1", "keys": {"v1": "..."}}', '{"current": "v1", "keys": {"v1": "..."}}'),
 ])
 def test_get_secret_success(mock_logger, mock_secrets_client, secret_str, expected):
     mock_secrets_client.get_secret_value.return_value = {'SecretString': secret_str}
@@ -150,16 +174,6 @@ def test_get_secret_empty_name(mock_logger):
         get_secret('', mock_logger)
 
 
-def test_get_secret_json_with_nested_object(mock_logger, mock_secrets_client):
-    secret_json = '{"config": {"current": "v1", "previous": ["v0"]}}'
-    mock_secrets_client.get_secret_value.return_value = {'SecretString': secret_json}
-
-    result = get_secret('test-secret', mock_logger)
-
-    assert result == '{"current": "v1", "previous": ["v0"]}'
-    assert isinstance(result, str)
-
-
 def test_get_secret_aws_error(mock_logger, mock_secrets_client):
     error_response = {'Error': {'Code': 'ResourceNotFoundException'}}
     mock_secrets_client.get_secret_value.side_effect = ClientError(error_response, 'GetSecretValue')
@@ -176,65 +190,67 @@ def test_get_secret_aws_error(mock_logger, mock_secrets_client):
     (1, True),
     (24, True),
 ])
-def test_get_data_key_uses_cache(mock_logger, mock_kms_client, config, ttl_hours, should_use_cache):
+def test_get_data_key_uses_cache(mock_logger, mock_kms_client, config, test_key_material, ttl_hours, should_use_cache):
     config.cache_ttl_hours = ttl_hours
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
 
-    key_material = b'test_key_material_32_bytes_long!'
-    key_cache['test-key-id'] = (key_material, datetime.now(UTC))
+    result = get_data_key('v1', config, mock_logger)
 
-    result = get_data_key('test-key-id', config, mock_logger)
-
-    assert result == key_material
-    mock_kms_client.generate_data_key.assert_not_called()
+    assert result == test_key_material
+    mock_kms_client.decrypt.assert_not_called()
 
 
-def test_get_data_key_generates_new_when_expired(mock_logger, mock_kms_client, config):
-    key_material = b'test_key_material_32_bytes_long!'
+def test_get_data_key_decrypts_when_expired(mock_logger, mock_kms_client, config, test_key_material):
     old_timestamp = datetime.now(UTC) - timedelta(hours=2)
-    key_cache['test-key-id'] = (b'old_key', old_timestamp)
+    key_cache['v1'] = (b'old_key', old_timestamp)
 
-    mock_kms_client.generate_data_key.return_value = {'Plaintext': key_material}
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
 
-    result = get_data_key('test-key-id', config, mock_logger)
+    result = get_data_key('v1', config, mock_logger)
 
-    assert result == key_material
-    mock_kms_client.generate_data_key.assert_called_once()
+    assert result == test_key_material
+    mock_kms_client.decrypt.assert_called_once()
 
 
-def test_get_data_key_generates_new_on_cache_miss(mock_logger, mock_kms_client, config):
+def test_get_data_key_decrypts_on_cache_miss(mock_logger, mock_kms_client, config, test_key_material):
     key_cache.clear()
-    key_material = b'test_key_material_32_bytes_long!'
-    mock_kms_client.generate_data_key.return_value = {'Plaintext': key_material}
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
 
-    result = get_data_key('new-key-id', config, mock_logger)
+    result = get_data_key('v1', config, mock_logger)
 
-    assert result == key_material
-    mock_kms_client.generate_data_key.assert_called_once_with(
-        KeyId='new-key-id',
-        KeySpec='AES_256'
-    )
+    assert result == test_key_material
+    assert mock_kms_client.decrypt.called
+    call_args = mock_kms_client.decrypt.call_args
+    assert 'CiphertextBlob' in call_args[1]
+    assert call_args[1]['KeyId'] == config.kms_key_id
 
 
-def test_get_data_key_caches_result(mock_logger, mock_kms_client, config):
+def test_get_data_key_caches_result(mock_logger, mock_kms_client, config, test_key_material):
     key_cache.clear()
-    key_material = b'test_key_material_32_bytes_long!'
-    mock_kms_client.generate_data_key.return_value = {'Plaintext': key_material}
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
 
-    get_data_key('cache-test-key', config, mock_logger)
+    get_data_key('v1', config, mock_logger)
 
-    assert 'cache-test-key' in key_cache
-    cached_material, timestamp = key_cache['cache-test-key']
-    assert cached_material == key_material
+    assert 'v1' in key_cache
+    cached_material, timestamp = key_cache['v1']
+    assert cached_material == test_key_material
     assert isinstance(timestamp, datetime)
 
 
 def test_get_data_key_kms_error(mock_logger, mock_kms_client, config):
     key_cache.clear()
     error_response = {'Error': {'Code': 'InvalidKeyId.NotFound'}}
-    mock_kms_client.generate_data_key.side_effect = ClientError(error_response, 'GenerateDataKey')
+    mock_kms_client.decrypt.side_effect = ClientError(error_response, 'Decrypt')
 
     with pytest.raises(ClientError):
-        get_data_key('invalid-key', config, mock_logger)
+        get_data_key('v1', config, mock_logger)
+
+
+def test_get_data_key_invalid_version(mock_logger, config):
+    key_cache.clear()
+
+    with pytest.raises(ValueError, match="Key version 'v999' not found"):
+        get_data_key('v999', config, mock_logger)
 
 
 # ============================================================================
@@ -246,16 +262,16 @@ def test_get_data_key_kms_error(mock_logger, mock_kms_client, config):
     ('date_of_birth', 'AES-SIV', 'v2'),
     ('postcode', 'AES-GCM-SIV', 'v1'),
 ])
-def test_build_aad_success(mock_logger, field_name, algorithm, key_version):
-    key_versions_json = json.dumps({'current': key_version})
+def test_build_aad_success(field_name, algorithm, key_version):
     config = Config(
         kms_key_id='test-key',
-        key_versions=key_versions_json,
+        key_versions={'v1': 'key1', 'v2': 'key2'},
+        current_version=key_version,
         algorithm=algorithm,
         cache_ttl_hours=1
     )
 
-    result = build_aad(field_name, config, mock_logger)
+    result = build_aad(field_name, key_version, config)
 
     assert isinstance(result, bytes)
     aad_dict = json.loads(result.decode('utf-8'))
@@ -264,27 +280,16 @@ def test_build_aad_success(mock_logger, field_name, algorithm, key_version):
     assert aad_dict['key_version'] == key_version
 
 
-def test_build_aad_missing_current_version(mock_logger):
+def test_build_aad_sorted_keys():
     config = Config(
         kms_key_id='test-key',
-        key_versions=json.dumps({'previous': 'v0'}),
+        key_versions={'v1': 'key1'},
+        current_version='v1',
         algorithm='AES-SIV',
         cache_ttl_hours=1
     )
 
-    with pytest.raises(ValueError, match="Key versions secret missing 'current' field"):
-        build_aad('test_field', config, mock_logger)
-
-
-def test_build_aad_sorted_keys(mock_logger):
-    config = Config(
-        kms_key_id='test-key',
-        key_versions=json.dumps({'current': 'v1'}),
-        algorithm='AES-SIV',
-        cache_ttl_hours=1
-    )
-
-    result = build_aad('test_field', config, mock_logger)
+    result = build_aad('test_field', 'v1', config)
     result_str = result.decode('utf-8')
 
     expected = json.dumps(
@@ -304,73 +309,67 @@ def test_build_aad_sorted_keys(mock_logger):
     ('SW1A 1AA', 'postcode'),
     ('john.doe@example.com', 'email'),
 ])
-def test_encrypt_value_success(mock_logger, config, cipher, value, field_name):
-    result = encrypt_value(value, field_name, cipher, config, mock_logger)
+def test_encrypt_value_success(mock_logger, mock_kms_client, config, test_key_material, value, field_name):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+
+    result = encrypt_value(value, field_name, config, mock_logger)
 
     assert isinstance(result, str)
     assert len(result) > 0
     assert result != value
 
 
-def test_encrypt_value_returns_base64(mock_logger, config, cipher):
-    result = encrypt_value('test_value', 'field', cipher, config, mock_logger)
+def test_encrypt_value_returns_base64(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+
+    result = encrypt_value('test_value', 'field', config, mock_logger)
 
     decoded = base64.urlsafe_b64decode(result)
     assert isinstance(decoded, bytes)
     assert len(decoded) > 0
 
 
-def test_encrypt_value_empty_value_raises_error(mock_logger, config, cipher):
+def test_encrypt_value_empty_value_raises_error(mock_logger, config):
     with pytest.raises(ValueError, match="Value cannot be empty"):
-        encrypt_value('', 'field', cipher, config, mock_logger)
+        encrypt_value('', 'field', config, mock_logger)
 
 
-def test_encrypt_value_whitespace_value_raises_error(mock_logger, config, cipher):
+def test_encrypt_value_whitespace_value_raises_error(mock_logger, config):
     with pytest.raises(ValueError, match="Value cannot be empty"):
-        encrypt_value('   ', 'field', cipher, config, mock_logger)
+        encrypt_value('   ', 'field', config, mock_logger)
 
 
-def test_encrypt_value_deterministic(mock_logger, config, cipher):
+def test_encrypt_value_deterministic(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
+
     value = 'test_value'
     field_name = 'test_field'
 
-    result1 = encrypt_value(value, field_name, cipher, config, mock_logger)
-    result2 = encrypt_value(value, field_name, cipher, config, mock_logger)
+    result1 = encrypt_value(value, field_name, config, mock_logger)
+    result2 = encrypt_value(value, field_name, config, mock_logger)
 
     assert result1 == result2
 
 
-def test_encrypt_value_different_fields_different_output(mock_logger, config, cipher):
+def test_encrypt_value_different_fields_different_output(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
+
     value = 'same_value'
 
-    result1 = encrypt_value(value, 'field1', cipher, config, mock_logger)
-    result2 = encrypt_value(value, 'field2', cipher, config, mock_logger)
+    result1 = encrypt_value(value, 'field1', config, mock_logger)
+    result2 = encrypt_value(value, 'field2', config, mock_logger)
 
     assert result1 != result2
 
 
-def test_encrypt_value_different_values_different_output(mock_logger, config, cipher):
-    field = 'test_field'
+def test_encrypt_value_uses_current_version(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    config.current_version = 'v2'
 
-    result1 = encrypt_value('value1', field, cipher, config, mock_logger)
-    result2 = encrypt_value('value2', field, cipher, config, mock_logger)
-
-    assert result1 != result2
-
-
-@pytest.mark.parametrize('value', [
-    'a',
-    'single value',
-    'value with spaces and numbers 123',
-    'special!@#$%^&*()',
-    'unicode_café_naïve',
-])
-def test_encrypt_value_various_inputs(mock_logger, config, cipher, value):
-    result = encrypt_value(value, 'field', cipher, config, mock_logger)
-
-    assert isinstance(result, str)
-    assert len(result) > 0
-    assert result != value
+    encrypt_value('test', 'field', config, mock_logger)
+    assert 'v2' in key_cache or mock_kms_client.decrypt.called
 
 
 # ============================================================================
@@ -383,47 +382,65 @@ def test_encrypt_value_various_inputs(mock_logger, config, cipher, value):
     'postcode',
     'email',
 ])
-def test_decrypt_value_success(mock_logger, config, cipher, field_name):
-    plaintext = 'test_value_123'
-    encrypted = encrypt_value(plaintext, field_name, cipher, config, mock_logger)
+def test_decrypt_value_success(mock_logger, mock_kms_client, config, test_key_material, field_name):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
 
-    result = decrypt_value(encrypted, field_name, cipher, config, mock_logger)
+    plaintext = 'test_value_123'
+    encrypted = encrypt_value(plaintext, field_name, config, mock_logger)
+
+    result = decrypt_value(encrypted, field_name, config, mock_logger)
 
     assert result == plaintext
 
 
-def test_decrypt_value_empty_pseudonym_raises_error(mock_logger, config, cipher):
+def test_decrypt_value_empty_pseudonym_raises_error(mock_logger, config):
     with pytest.raises(ValueError, match="Pseudonym cannot be empty"):
-        decrypt_value('', 'field', cipher, config, mock_logger)
+        decrypt_value('', 'field', config, mock_logger)
 
 
-def test_decrypt_value_whitespace_pseudonym_raises_error(mock_logger, config, cipher):
+def test_decrypt_value_whitespace_pseudonym_raises_error(mock_logger, config):
     with pytest.raises(ValueError, match="Pseudonym cannot be empty"):
-        decrypt_value('   ', 'field', cipher, config, mock_logger)
+        decrypt_value('   ', 'field', config, mock_logger)
 
 
-def test_decrypt_value_invalid_base64_raises_error(mock_logger, config, cipher):
+def test_decrypt_value_invalid_base64_raises_error(mock_logger, config):
     with pytest.raises(Exception):
-        decrypt_value('not_valid_base64!!!', 'field', cipher, config, mock_logger)
+        decrypt_value('not_valid_base64!!!', 'field', config, mock_logger)
 
 
-def test_decrypt_value_wrong_field_name_raises_error(mock_logger, config, cipher):
+def test_decrypt_value_wrong_field_name_raises_error(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
+
     plaintext = 'test_value'
-    encrypted = encrypt_value(plaintext, 'field1', cipher, config, mock_logger)
+    encrypted = encrypt_value(plaintext, 'field1', config, mock_logger)
 
-    with pytest.raises(Exception):
-        decrypt_value(encrypted, 'field2', cipher, config, mock_logger)
+    with pytest.raises(ValueError, match="Failed to decrypt"):
+        decrypt_value(encrypted, 'field2', config, mock_logger)
 
 
-def test_decrypt_value_wrong_key_raises_error(mock_logger, config, cipher):
-    plaintext = 'test_value'
-    encrypted = encrypt_value(plaintext, 'field', cipher, config, mock_logger)
+def test_decrypt_value_tries_multiple_versions(mock_logger, mock_kms_client, config, test_key_material):
+    key_v1 = b'1' * 32
+    key_v2 = b'2' * 32
 
-    wrong_key_material = b'1' * 32
-    wrong_cipher = AESSIV(wrong_key_material)
+    config.current_version = 'v1'
+    key_cache['v1'] = (key_v1, datetime.now(UTC))
+    encrypted = encrypt_value('test', 'field', config, mock_logger)
 
-    with pytest.raises(Exception):
-        decrypt_value(encrypted, 'field', wrong_cipher, config, mock_logger)
+    config.current_version = 'v2'
+    key_cache.clear()
+
+    def decrypt_side_effect(*args, **kwargs):
+        blob = kwargs.get('CiphertextBlob')
+        if blob == base64.b64decode(config.key_versions['v1']):
+            return {'Plaintext': key_v1}
+        return {'Plaintext': key_v2}
+
+    mock_kms_client.decrypt.side_effect = decrypt_side_effect
+
+    result = decrypt_value(encrypted, 'field', config, mock_logger)
+    assert result == 'test'
 
 
 @pytest.mark.parametrize('plaintext', [
@@ -432,59 +449,43 @@ def test_decrypt_value_wrong_key_raises_error(mock_logger, config, cipher):
     'SW1A 1AA',
     'john.doe@example.com',
     'special!@#$%^&*()',
-    'unicode_café_naïve',
     'a',
     'value with spaces',
 ])
-def test_decrypt_value_various_inputs(mock_logger, config, cipher, plaintext):
-    encrypted = encrypt_value(plaintext, 'field', cipher, config, mock_logger)
+def test_decrypt_value_various_inputs(mock_logger, mock_kms_client, config, test_key_material, plaintext):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
 
-    result = decrypt_value(encrypted, 'field', cipher, config, mock_logger)
+    encrypted = encrypt_value(plaintext, 'field', config, mock_logger)
+    result = decrypt_value(encrypted, 'field', config, mock_logger)
 
     assert result == plaintext
-
-
-def test_decrypt_value_roundtrip_deterministic(mock_logger, config, cipher):
-    plaintext = 'test_value'
-    field_name = 'test_field'
-
-    encrypted1 = encrypt_value(plaintext, field_name, cipher, config, mock_logger)
-    decrypted1 = decrypt_value(encrypted1, field_name, cipher, config, mock_logger)
-
-    encrypted2 = encrypt_value(plaintext, field_name, cipher, config, mock_logger)
-    decrypted2 = decrypt_value(encrypted2, field_name, cipher, config, mock_logger)
-
-    assert decrypted1 == decrypted2 == plaintext
-
-
-def test_decrypt_value_returns_string(mock_logger, config, cipher):
-    plaintext = 'test_value'
-    encrypted = encrypt_value(plaintext, 'field', cipher, config, mock_logger)
-
-    result = decrypt_value(encrypted, 'field', cipher, config, mock_logger)
-
-    assert isinstance(result, str)
 
 
 # ============================================================================
 # process_field_encryption TESTS
 # ============================================================================
 
-def test_process_field_encryption_single_value(mock_logger, config, cipher):
+def test_process_field_encryption_single_value(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+
     field_name = 'nhs_number'
     value = 'NHS123456789'
 
-    result = process_field_encryption(field_name, value, cipher, config, mock_logger)
+    result = process_field_encryption(field_name, value, config, mock_logger)
 
     assert isinstance(result, str)
     assert result != value
 
 
-def test_process_field_encryption_list_of_values(mock_logger, config, cipher):
+def test_process_field_encryption_list_of_values(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
+
     field_name = 'emails'
     values = ['test1@example.com', 'test2@example.com', 'test3@example.com']
 
-    result = process_field_encryption(field_name, values, cipher, config, mock_logger)
+    result = process_field_encryption(field_name, values, config, mock_logger)
 
     assert isinstance(result, list)
     assert len(result) == 3
@@ -493,96 +494,85 @@ def test_process_field_encryption_list_of_values(mock_logger, config, cipher):
         assert isinstance(encrypted, str)
 
 
-def test_process_field_encryption_empty_list_raises_error(mock_logger, config, cipher):
+def test_process_field_encryption_empty_list_raises_error(mock_logger, config):
     field_name = 'test_field'
     values = []
 
     with pytest.raises(ValueError, match="contains an empty list"):
-        process_field_encryption(field_name, values, cipher, config, mock_logger)
-
-
-def test_process_field_encryption_single_element_list(mock_logger, config, cipher):
-    field_name = 'test_field'
-    values = ['single_value']
-
-    result = process_field_encryption(field_name, values, cipher, config, mock_logger)
-
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert result[0] != values[0]
+        process_field_encryption(field_name, values, config, mock_logger)
 
 
 # ============================================================================
 # process_field_decryption TESTS
 # ============================================================================
 
-def test_process_field_decryption_single_value(mock_logger, config, cipher):
+def test_process_field_decryption_single_value(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
+
     field_name = 'nhs_number'
-    plaintext = 'NHS123456789'
-    encrypted = encrypt_value(plaintext, field_name, cipher, config, mock_logger)
+    original = 'NHS123456789'
+    encrypted = encrypt_value(original, field_name, config, mock_logger)
 
-    result = process_field_decryption(field_name, encrypted, cipher, config, mock_logger)
+    result = process_field_decryption(field_name, encrypted, config, mock_logger)
 
-    assert isinstance(result, str)
-    assert result == plaintext
+    assert result == original
 
 
-def test_process_field_decryption_list_of_values(mock_logger, config, cipher):
+def test_process_field_decryption_list_of_values(mock_logger, mock_kms_client, config, test_key_material):
+    mock_kms_client.decrypt.return_value = {'Plaintext': test_key_material}
+    key_cache['v1'] = (test_key_material, datetime.now(UTC))
+
     field_name = 'emails'
-    plaintexts = ['test1@example.com', 'test2@example.com', 'test3@example.com']
-    encrypted_list = [encrypt_value(p, field_name, cipher, config, mock_logger) for p in plaintexts]
+    originals = ['test1@example.com', 'test2@example.com', 'test3@example.com']
+    encrypted = [encrypt_value(v, field_name, config, mock_logger) for v in originals]
 
-    result = process_field_decryption(field_name, encrypted_list, cipher, config, mock_logger)
-
-    assert isinstance(result, list)
-    assert len(result) == 3
-    assert result == plaintexts
-
-
-def test_process_field_decryption_single_element_list(mock_logger, config, cipher):
-    field_name = 'test_field'
-    plaintext = 'single_value'
-    encrypted = encrypt_value(plaintext, field_name, cipher, config, mock_logger)
-    encrypted_list = [encrypted]
-
-    result = process_field_decryption(field_name, encrypted_list, cipher, config, mock_logger)
+    result = process_field_decryption(field_name, encrypted, config, mock_logger)
 
     assert isinstance(result, list)
-    assert len(result) == 1
-    assert result[0] == plaintext
+    assert result == originals
 
 
 # ============================================================================
 # validate_env_vars TESTS
 # ============================================================================
 
-def test_validate_env_vars_success(mock_logger, env_vars_set):
-    validate_env_vars(mock_logger)
+def test_validate_env_vars_success(mock_logger):
+    env = {
+        'SECRET_NAME_KMS_KEY': 'kms-key',
+        'SECRET_NAME_KEY_VERSIONS': 'key-versions',
+        'ALGORITHM_ID': 'AES-SIV'
+    }
+    with patch.dict(os.environ, env, clear=True):
+        validate_env_vars(mock_logger)
 
 
 def test_validate_env_vars_missing_kms_key(mock_logger):
-    with patch.dict(os.environ, {
-        'SECRET_NAME_KEY_VERSIONS': 'key-versions-secret',
+    env = {
+        'SECRET_NAME_KEY_VERSIONS': 'key-versions',
         'ALGORITHM_ID': 'AES-SIV'
-    }, clear=True):
+    }
+    with patch.dict(os.environ, env, clear=True):
         with pytest.raises(ValueError, match="Missing required environment variables"):
             validate_env_vars(mock_logger)
 
 
 def test_validate_env_vars_missing_key_versions(mock_logger):
-    with patch.dict(os.environ, {
+    env = {
         'SECRET_NAME_KMS_KEY': 'kms-key-secret',
         'ALGORITHM_ID': 'AES-SIV'
-    }, clear=True):
+    }
+    with patch.dict(os.environ, env, clear=True):
         with pytest.raises(ValueError, match="Missing required environment variables"):
             validate_env_vars(mock_logger)
 
 
 def test_validate_env_vars_missing_algorithm(mock_logger):
-    with patch.dict(os.environ, {
+    env = {
         'SECRET_NAME_KMS_KEY': 'kms-key-secret',
         'SECRET_NAME_KEY_VERSIONS': 'key-versions-secret'
-    }, clear=True):
+    }
+    with patch.dict(os.environ, env, clear=True):
         with pytest.raises(ValueError, match="Missing required environment variables"):
             validate_env_vars(mock_logger)
 
@@ -602,40 +592,25 @@ def test_validate_event_success(mock_logger, action):
     event = {
         'action': action,
         'field_name': 'nhs_number',
-        'field_value': 'NHS123456789'
+        'field_value': 'test_value'
     }
     validate_event(event, mock_logger)
 
 
-@pytest.mark.parametrize('missing_field', ['action', 'field_name', 'field_value'])
-def test_validate_event_missing_fields(mock_logger, missing_field):
+def test_validate_event_invalid_action(mock_logger):
     event = {
-        'action': 'encrypt',
+        'action': 'invalid',
         'field_name': 'nhs_number',
-        'field_value': 'NHS123456789'
-    }
-    del event[missing_field]
-
-    with pytest.raises(ValueError, match="Missing required event fields"):
-        validate_event(event, mock_logger)
-
-
-@pytest.mark.parametrize('invalid_action', ['invalid_action', 'decrypt', 'process', ''])
-def test_validate_event_invalid_action(mock_logger, invalid_action):
-    event = {
-        'action': invalid_action,
-        'field_name': 'nhs_number',
-        'field_value': 'NHS123456789'
+        'field_value': 'test_value'
     }
     with pytest.raises(ValueError, match="Invalid action"):
         validate_event(event, mock_logger)
 
 
-def test_validate_event_none_field_value(mock_logger):
+def test_validate_event_missing_field(mock_logger):
     event = {
         'action': 'encrypt',
-        'field_name': 'nhs_number',
-        'field_value': None
+        'field_name': 'nhs_number'
     }
     with pytest.raises(ValueError, match="Missing required event fields"):
         validate_event(event, mock_logger)

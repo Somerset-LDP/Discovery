@@ -149,7 +149,7 @@ lambda_client = boto3.client('lambda')
 
 # Encrypt a single value
 response = lambda_client.invoke(
-    FunctionName='pseudonymisation-lambda',
+    FunctionName='pseudonymisation-dat-processing',
     InvocationType='RequestResponse',
     Payload=json.dumps({
         'action': 'encrypt',
@@ -196,9 +196,25 @@ original_value = result['field_value']
 ## Environment Variables
 
 Required:
-- `SECRET_NAME_KMS_KEY` - Name of AWS Secrets Manager secret containing KMS key ID
-- `SECRET_NAME_KEY_VERSIONS` - Name of secret containing key versions JSON: `{"current": "v1"}`
+
+- `SECRET_NAME_KMS_KEY` - Name of AWS Secrets Manager secret containing KMS key ID `arn:aws:kms:region:value`
+- `SECRET_NAME_KEY_VERSIONS` - Name of secret containing key versions JSON:
+  `{"current": "v1", "keys": {"v1": "base64-encoded-key"}}`
 - `ALGORITHM_ID` - Algorithm identifier (e.g., "AES-SIV")
+
+## Key Generation Pattern
+
+This implementation uses **Envelope Encryption with Manual Data Key Rotation**. Data keys are generated once using KMS
+`generate_data_key`, then stored in encrypted form in Secrets Manager. When needed, these encrypted data keys are
+decrypted via KMS `decrypt`, ensuring deterministic encryption - the same plaintext data key is always returned for a
+given version.
+
+To generate new encrypted data keys, use the helper script:
+
+```bash
+python dev_utils/generate_encrypted_key.py --kms-key-id <KMS_ARN> --version v1
+python dev_utils/generate_encrypted_key.py --kms-key-id alias/pseudonymisation-key --version v2 --add-to-existing
+```
 
 ## Key Features
 

@@ -1,6 +1,7 @@
 import os
 import pytest
 from unittest.mock import patch, MagicMock
+import json
 from botocore.exceptions import ClientError
 
 from lambda_functions.pseudonymisation.pseudonymisation import (
@@ -22,8 +23,13 @@ def reset_cache():
 
 def mock_get_secret(SecretId):
     if 'kms' in SecretId:
-        return {'SecretString': 'arn:aws:kms:region:account:key/id'}
-    return {'SecretString': '{"key_versions": "{\\"current\\": \\"v1\\"}"}'}
+        return {'SecretString': '{"kms_key_id": "arn:aws:kms:region:account:key/id"}'}
+    return {'SecretString': json.dumps({
+        "current": "v1",
+        "keys": {
+            "v1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        }
+    })}
 
 
 @pytest.fixture
@@ -37,7 +43,7 @@ def mock_everything():
              patch('lambda_functions.pseudonymisation.pseudonymisation.kms_client') as mock_kms:
 
             mock_secrets.get_secret_value.side_effect = mock_get_secret
-            mock_kms.generate_data_key.return_value = {'Plaintext': b'0' * 32}
+            mock_kms.decrypt.return_value = {'Plaintext': b'0' * 32}
 
             yield mock_secrets, mock_kms
 
@@ -154,9 +160,9 @@ def test_integration_kms_error(context):
              patch('lambda_functions.pseudonymisation.pseudonymisation.kms_client') as mock_kms:
 
             mock_secrets.get_secret_value.side_effect = mock_get_secret
-            mock_kms.generate_data_key.side_effect = ClientError(
+            mock_kms.decrypt.side_effect = ClientError(
                 {'Error': {'Code': 'InvalidKeyId.NotFound'}},
-                'GenerateDataKey'
+                'Decrypt'
             )
 
             response = lambda_handler({
@@ -208,3 +214,31 @@ def test_integration_roundtrip_list(mock_everything, context):
 
     assert 'error' not in decrypt_response, f"Decrypt failed: {decrypt_response.get('error')}"
     assert decrypt_response['field_value'] == plaintexts
+
+
+def test_integration_deterministic_encryption(mock_everything, context):
+    response1 = lambda_handler({
+        'action': 'encrypt',
+        'field_name': 'nhs_number',
+        'field_value': 'NHS123456789'
+    }, context)
+
+    response2 = lambda_handler({
+        'action': 'encrypt',
+        'field_name': 'nhs_number',
+        'field_value': 'NHS123456789'
+    }, context)
+
+    assert response1['field_value'] == response2['field_value']
+
+
+def test_integration_with_correlation_id(mock_everything, context):
+    response = lambda_handler({
+        'action': 'encrypt',
+        'field_name': 'nhs_number',
+        'field_value': 'NHS123456789',
+        'correlation_id': 'test-correlation-123'
+    }, context)
+
+    assert 'error' not in response
+    assert response['field_name'] == 'nhs_number'

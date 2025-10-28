@@ -10,6 +10,11 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Debug workspace
+        run: |
+          echo "PWD: $(pwd)"
+          ls -la
+          ls -la layers/ig-conformance/
       - uses: actions/checkout@v4
       - uses: delivops/ecr-build-action@v0.0.10
         with:

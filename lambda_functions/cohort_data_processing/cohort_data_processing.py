@@ -7,8 +7,13 @@ from typing import List, Set, Union
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from lambda_functions.cohort_data_processing.s3_utils import write_to_s3, delete_s3_objects, list_s3_files, \
-    get_s3_object_content
+from lambda_functions.cohort_data_processing.aws_utils import (
+    write_to_s3,
+    delete_s3_objects,
+    list_s3_files,
+    get_s3_object_content,
+    invoke_lambda
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -23,7 +28,8 @@ REQUIRED_ENV_VARS = [
     "S3_GP_FILES_PREFIX",
     "S3_GP_CHECKSUMS_PREFIX",
     "S3_COHORT_KEY",
-    "KMS_KEY_ID"
+    "KMS_KEY_ID",
+    "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME"
 ]
 
 
@@ -104,12 +110,41 @@ def load_and_clean_nhs_csv(
     return df
 
 
-def pseudonymise(all_common_df: set) -> None:
-    logger.info("Pseudonymisation step placeholder.")
+def pseudonymise_nhs_numbers(nhs_numbers: Set[str], lambda_function_name: str) -> Set[str]:
+    if not nhs_numbers:
+        logger.warning("Empty set provided for pseudonymisation")
+        return set()
+
+    logger.info(f"Starting pseudonymisation of {len(nhs_numbers)} NHS numbers")
+    nhs_list = sorted(list(nhs_numbers))
+    payload = {
+        "action": "encrypt",
+        "field_value": nhs_list
+    }
+    response_payload = invoke_lambda(lambda_function_name, payload)
+
+    if 'error' in response_payload:
+        error_msg = f"Pseudonymisation Lambda returned error: {response_payload['error']}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    if 'field_value' not in response_payload:
+        error_msg = "Pseudonymisation Lambda response missing 'field_value'"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    pseudonymised_values = response_payload['field_value']
+    if len(pseudonymised_values) != len(nhs_list):
+        error_msg = f"Pseudonymisation returned {len(pseudonymised_values)} values, expected {len(nhs_list)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    pseudonymised_set = set(pseudonymised_values)
+    logger.info(f"Successfully pseudonymised {len(pseudonymised_set)} NHS numbers")
+    return pseudonymised_set
 
 
-def get_env_variables():
-    env_vars = {var: os.getenv(var) for var in REQUIRED_ENV_VARS}
+def get_env_variables() -> dict:
+    env_vars = {var: os.getenv(var, '').strip() for var in REQUIRED_ENV_VARS}
     missing = [var for var, val in env_vars.items() if not val]
     if missing:
         logger.error(f"Missing required environment variables: {', '.join(missing)}")
@@ -127,6 +162,7 @@ def lambda_handler(event, context) -> dict:
         gp_checksums_prefix = env_vars["S3_GP_CHECKSUMS_PREFIX"]
         cohort_path = env_vars["S3_COHORT_KEY"]
         kms_key_id = env_vars["KMS_KEY_ID"]
+        pseudonymisation_lambda = env_vars["PSEUDONYMISATION_LAMBDA_FUNCTION_NAME"]
 
         # SFT
         sft_bucket, sft_keys = get_files(sft_file_prefix)
@@ -168,19 +204,28 @@ def lambda_handler(event, context) -> dict:
             all_common = set().union(*intersections)
         logger.info(f'Final union count: {len(all_common)}')
 
-        # Pseudonymisation step placeholder
-        pseudonymise(all_common)
+        # Pseudonymise cohort
+        pseudonymised_cohort = pseudonymise_nhs_numbers(
+            all_common,
+            pseudonymisation_lambda
+        )
 
         # Write cohort
         cohort_bucket, cohort_key = cohort_path.split('/', 1)
-        write_to_s3(cohort_bucket, cohort_key, all_common, kms_key_id)
+        write_to_s3(cohort_bucket, cohort_key, pseudonymised_cohort, kms_key_id)
 
         # Cleanup
         delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))
         delete_and_log_remaining(sft_checksum_bucket, [sft_checksum_key], os.path.dirname(sft_checksum_key))
         delete_and_log_remaining(gp_bucket, gp_file_keys, gp_files_prefix.split('/', 1)[1])
         delete_and_log_remaining(gp_checksum_bucket, gp_checksum_keys, gp_checksum_prefix)
-        return {'final_count': len(all_common), 'cohort_key': cohort_key}
+
+        return {
+            'final_count': len(all_common),
+            'pseudonymised_count': len(pseudonymised_cohort),
+            'cohort_key': cohort_key
+        }
+
     except (LookupError, ValueError, UnicodeError, BotoCoreError, ClientError):
         raise
     except Exception as e:

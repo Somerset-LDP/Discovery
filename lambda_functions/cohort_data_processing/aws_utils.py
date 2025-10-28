@@ -1,12 +1,15 @@
 import csv
+import json
 import logging
 from io import StringIO
-from typing import List, Set
+from typing import List, Set, Dict, Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 s3_client = boto3.client('s3')
+lambda_client = boto3.client('lambda')
+
 SSE = "aws:kms"
 
 
@@ -36,11 +39,17 @@ def get_s3_object_content(bucket: str, key: str) -> bytes:
 
 
 def write_to_s3(bucket: str, key: str, nhs_set: Set[str], kms_key_id: str) -> None:
+    if not kms_key_id or not kms_key_id.strip():
+        error_msg = f"KMS key ID is empty or invalid: '{kms_key_id}'"
+        logging.error(error_msg)
+        raise ValueError(error_msg)
+
     try:
         csv_buffer = StringIO()
         writer = csv.writer(csv_buffer)
         for nhs in sorted(nhs_set):
             writer.writerow([nhs])
+
         s3_client.put_object(
             Bucket=bucket,
             Key=key,
@@ -49,7 +58,12 @@ def write_to_s3(bucket: str, key: str, nhs_set: Set[str], kms_key_id: str) -> No
             SSEKMSKeyId=kms_key_id
         )
         logging.info(f'Written final union to s3://{bucket}/{key}')
-    except (BotoCoreError, ClientError) as e:
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_msg = e.response.get('Error', {}).get('Message', str(e))
+        logging.error(f'AWS error writing to s3://{bucket}/{key}: [{error_code}] {error_msg}')
+        raise
+    except (BotoCoreError, Exception) as e:
         logging.error(f'Failed to write to s3://{bucket}/{key}: {e}')
         raise
 
@@ -61,4 +75,27 @@ def delete_s3_objects(bucket: str, keys: List[str]) -> None:
             s3_client.delete_object(Bucket=bucket, Key=key)
     except (BotoCoreError, ClientError) as e:
         logging.error(f'Failed to delete objects in {bucket}: {e}')
+        raise
+
+
+def invoke_lambda(function_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        logging.info(f"Invoking Lambda function: {function_name}")
+        response = lambda_client.invoke(
+            FunctionName=function_name,
+            InvocationType="RequestResponse",
+            Payload=json.dumps(payload)
+        )
+
+        response_payload = json.loads(response['Payload'].read())
+        return response_payload
+
+    except ClientError as e:
+        logging.error(f"AWS ClientError invoking Lambda {function_name}: {e}")
+        raise
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse Lambda response: {e}")
+        raise ValueError(f"Invalid JSON response from Lambda: {e}")
+    except Exception as e:
+        logging.error(f"Error invoking Lambda {function_name}: {e}", exc_info=True)
         raise

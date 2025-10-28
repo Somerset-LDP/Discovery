@@ -291,16 +291,17 @@ def _encrypt(field_name: str, value: str) -> str | None:
             })
         )
 
-        if response.statusCode == 200:
-            result = json.loads(response['Payload'].read())
-            if 'field_value' not in result:
-                logger.error(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
-                raise ValueError(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+        # check if there is an "error" key in the response
+        result = json.loads(response['Payload'].read())
+        if 'error' in result:   
+            logger.error(f"Encryption service returned error: {result['error']}")
+        elif 'field_value' not in result:
+            logger.error(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+            raise ValueError(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
     
-            encrypted_value = result['field_value']        
-            logger.info(f"Encrypted value for field:{field_name}")
-        else:
-            logger.error(f"Failed to encrypt value for field: {field_name}: {response}")
+        encrypted_value = result['field_value']        
+        logger.info(f"Encrypted value for field:{field_name}")
+
     except ValueError as e:
         # Re-raise ValueError (malformed response) to propagate up the call chain
         raise

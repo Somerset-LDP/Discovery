@@ -21,3 +21,8 @@ jobs:
           dockerfile_path: "layers/ig-conformance/Dockerfile"
           aws_role: "GithubRunnerRole"
           no_cache: true
+
+      - name: Debug workspace
+        run: |
+          echo "PWD: $(pwd)"
+          ls -la layers/ig-conformance/

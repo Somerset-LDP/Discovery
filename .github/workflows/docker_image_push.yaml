@@ -20,3 +20,4 @@ jobs:
           aws_region: "eu-west-2"
           dockerfile_path: "layers/ig-conformance/Dockerfile"
           aws_role: "GithubRunnerRole"
+          no_cache: true

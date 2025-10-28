@@ -119,6 +119,7 @@ def pseudonymise_nhs_numbers(nhs_numbers: Set[str], lambda_function_name: str) -
     nhs_list = sorted(list(nhs_numbers))
     payload = {
         "action": "encrypt",
+        "field_name": "nhs_number",
         "field_value": nhs_list
     }
     response_payload = invoke_lambda(lambda_function_name, payload)

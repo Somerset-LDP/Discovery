@@ -198,8 +198,7 @@ original_value = result['field_value']
 Required:
 
 - `SECRET_NAME_KMS_KEY` - Name of AWS Secrets Manager secret containing KMS key ID `arn:aws:kms:region:value`
-- `SECRET_NAME_KEY_VERSIONS` - Name of secret containing key versions JSON:
-  `{"current": "v1", "keys": {"v1": "base64-encoded-key"}}`
+- `SECRET_NAME_KEY_VERSIONS` - Name of secret containing key versions JSON: `{"current": "v1", "keys": {"v1": "base64-encoded-key"}}`
 - `ALGORITHM_ID` - Algorithm identifier (e.g., "AES-SIV")
 
 ## Key Generation Pattern
@@ -209,7 +208,7 @@ This implementation uses **Envelope Encryption with Manual Data Key Rotation**. 
 decrypted via KMS `decrypt`, ensuring deterministic encryption - the same plaintext data key is always returned for a
 given version.
 
-To generate new encrypted data keys, use the helper script:
+To generate new encrypted data keys, use the helper script (this can be automated for future project phases):
 
 ```bash
 python dev_utils/generate_encrypted_key.py --kms-key-id <KMS_ARN> --version v1

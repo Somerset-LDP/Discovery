@@ -44,6 +44,7 @@ ENV_CACHE_TTL_HOURS = 'CACHE_TTL_HOURS'
 
 ENCODING_UTF8 = 'utf-8'
 ENCODING_ASCII = 'ascii'
+KMS_KEY_SPEC_AES_256 = 'AES_256'
 DEFAULT_CACHE_TTL_HOURS = 1
 
 key_cache: Dict[str, Tuple[bytes, datetime]] = {}
@@ -83,8 +84,7 @@ class ErrorResponse:
 @dataclass
 class Config:
     kms_key_id: str
-    key_versions: Dict[str, str]
-    current_version: str
+    key_versions: str
     algorithm: str
     cache_ttl_hours: int
 
@@ -93,26 +93,16 @@ def load_config(log: CorrelationLogger) -> Config:
     log.info("Loading configuration from environment variables")
     kms_key_secret = os.getenv(ENV_SECRET_NAME_KMS_KEY)
     key_versions_secret = os.getenv(ENV_SECRET_NAME_KEY_VERSIONS)
-    algorithm = os.getenv(ENV_ALGORITHM_ID)
+    algorithm_secret = os.getenv(ENV_ALGORITHM_ID)
     cache_ttl_hours = os.getenv(ENV_CACHE_TTL_HOURS, DEFAULT_CACHE_TTL_HOURS)
 
     kms_key_id = get_secret(kms_key_secret, log)
-    key_versions_json = get_secret(key_versions_secret, log)
-    key_versions_data = json.loads(key_versions_json)
-    current_version = key_versions_data.get('current')
-    key_versions = key_versions_data.get('keys', {})
-
-    if not current_version:
-        raise ValueError("Encrypted keys secret missing 'current' field")
-    if not key_versions:
-        raise ValueError("Encrypted keys secret missing 'keys' field")
-    if current_version not in key_versions:
-        raise ValueError(f"Current version '{current_version}' not found in keys")
+    key_versions = get_secret(key_versions_secret, log)
+    algorithm = algorithm_secret
 
     return Config(
         kms_key_id=kms_key_id,
         key_versions=key_versions,
-        current_version=current_version,
         algorithm=algorithm,
         cache_ttl_hours=int(cache_ttl_hours)
     )
@@ -133,45 +123,46 @@ def get_secret(secret_name: str, log: CorrelationLogger) -> str:
         log.error(msg)
         raise ValueError(msg)
 
+    if secret_str.startswith('{'):
+        secret_json = json.loads(secret_str)
+        if isinstance(secret_json, dict) and secret_json:
+            value = next(iter(secret_json.values()))
+            if isinstance(value, (dict, list)):
+                return json.dumps(value)
+            return value
+
     return secret_str
 
 
-def get_data_key(key_version: str, config: Config, log: CorrelationLogger) -> bytes:
+def get_data_key(kms_key_id: str, config: Config, log: CorrelationLogger) -> bytes:
     global key_cache
 
-    if key_version in key_cache:
-        key_material, timestamp = key_cache[key_version]
+    if kms_key_id in key_cache:
+        key_material, timestamp = key_cache[kms_key_id]
         if datetime.now(UTC) - timestamp < timedelta(hours=config.cache_ttl_hours):
-            log.info(f"Using cached data key for version '{key_version}'")
+            log.info("Using cached data key")
             return key_material
-        log.info(f"Cached data key for version '{key_version}' expired, fetching new one")
-        del key_cache[key_version]
+        log.info("Cached data key expired, generating new one")
+        del key_cache[kms_key_id]
 
-    if key_version not in config.key_versions:
-        raise ValueError(f"Key version '{key_version}' not found in configuration")
-
-    encrypted_key_b64 = config.key_versions[key_version]
-    encrypted_key_blob = base64.b64decode(encrypted_key_b64)
-
-    log.info(f"Decrypting data key for version '{key_version}' using KMS")
-
-    response = kms_client.decrypt(
-        CiphertextBlob=encrypted_key_blob,
-        KeyId=config.kms_key_id
-    )
+    log.info("Generating new data key from KMS")
+    response = kms_client.generate_data_key(KeyId=kms_key_id, KeySpec=KMS_KEY_SPEC_AES_256)
     key_material = response['Plaintext']
-
-    key_cache[key_version] = (key_material, datetime.now(UTC))
-    log.info(f"Data key for version '{key_version}' decrypted and cached")
-
+    key_cache[kms_key_id] = (key_material, datetime.now(UTC))
+    log.info("Data key generated and cached")
     return key_material
 
 
-def build_aad(field_name: str, key_version: str, config: Config) -> bytes:
+def build_aad(field_name: str, config: Config, log: CorrelationLogger) -> bytes:
+    key_versions = json.loads(config.key_versions)
+    current_version = key_versions.get('current')
+    if not current_version:
+        raise ValueError("Key versions secret missing 'current' field")
+
     aad = AdditionalAuthenticatedData(
         field=field_name,
         algorithm=config.algorithm,
-        key_version=key_version
+        key_version=current_version
     )
     return aad.to_bytes()
 
@@ -179,17 +170,14 @@ def build_aad(field_name: str, key_version: str, config: Config) -> bytes:
 def encrypt_value(
     value: str,
     field_name: str,
+    cipher: AESSIV,
     config: Config,
     log: CorrelationLogger
 ) -> str:
     if not value or not value.strip():
         raise ValueError("Value cannot be empty")
 
-    key_version = config.current_version
-    data_key = get_data_key(key_version, config, log)
-    cipher = AESSIV(data_key)
-
-    aad = build_aad(field_name, key_version, config)
+    aad = build_aad(field_name, config, log)
     ciphertext = cipher.encrypt(value.encode(ENCODING_UTF8), [aad])
     return base64.urlsafe_b64encode(ciphertext).decode(ENCODING_ASCII)
 
@@ -197,38 +185,23 @@ def encrypt_value(
 def decrypt_value(
     pseudonym: str,
     field_name: str,
+    cipher: AESSIV,
     config: Config,
     log: CorrelationLogger
 ) -> str:
     if not pseudonym or not pseudonym.strip():
         raise ValueError("Pseudonym cannot be empty")
 
+    aad = build_aad(field_name, config, log)
     ciphertext = base64.urlsafe_b64decode(pseudonym)
-
-    versions_to_try = [config.current_version] + [
-        v for v in config.key_versions.keys() if v != config.current_version
-    ]
-
-    last_error = None
-    for key_version in versions_to_try:
-        try:
-            data_key = get_data_key(key_version, config, log)
-            cipher = AESSIV(data_key)
-            aad = build_aad(field_name, key_version, config)
-            plaintext = cipher.decrypt(ciphertext, [aad])
-            log.info(f"Successfully decrypted using key version '{key_version}'")
-            return plaintext.decode(ENCODING_UTF8)
-        except Exception as e:
-            last_error = e
-            log.debug(f"Failed to decrypt with version '{key_version}': {str(e)}")
-            continue
-
-    raise ValueError(f"Failed to decrypt with any available key version. Last error: {str(last_error)}")
+    plaintext = cipher.decrypt(ciphertext, [aad])
+    return plaintext.decode(ENCODING_UTF8)
 
 
 def process_field_encryption(
     field_name: str,
     field_value: Union[str, List[str]],
+    cipher: AESSIV,
     config: Config,
     log: CorrelationLogger
 ) -> Union[str, List[str]]:
@@ -236,19 +209,20 @@ def process_field_encryption(
         if not field_value:
             log.warning(f"Empty list provided for field '{field_name}', skipping encryption")
             raise ValueError(f"Field '{field_name}' contains an empty list - cannot process")
-        return [encrypt_value(v, field_name, config, log) for v in field_value]
-    return encrypt_value(field_value, field_name, config, log)
+        return [encrypt_value(v, field_name, cipher, config, log) for v in field_value]
+    return encrypt_value(field_value, field_name, cipher, config, log)
 
 
 def process_field_decryption(
     field_name: str,
     field_value: Union[str, List[str]],
+    cipher: AESSIV,
     config: Config,
     log: CorrelationLogger
 ) -> Union[str, List[str]]:
     if isinstance(field_value, list):
-        return [decrypt_value(v, field_name, config, log) for v in field_value]
-    return decrypt_value(field_value, field_name, config, log)
+        return [decrypt_value(v, field_name, cipher, config, log) for v in field_value]
+    return decrypt_value(field_value, field_name, cipher, config, log)
 
 
 def validate_env_vars(log: CorrelationLogger):
@@ -304,14 +278,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         log.info("Request received", extra={'action': action, 'field_name': field_name})
 
         config = load_config(log)
+        data_key = get_data_key(config.kms_key_id, config, log)
+        cipher = AESSIV(data_key)
 
         if action == 'encrypt':
-            result = process_field_encryption(field_name, field_value, config, log)
+            result = process_field_encryption(field_name, field_value, cipher, config, log)
             log.info("Encryption successful", extra={'field_name': field_name})
             response = PseudonymisationResponse(field_name=field_name, field_value=result)
             return response.to_dict()
         elif action == 'reidentify':
-            result = process_field_decryption(field_name, field_value, config, log)
+            result = process_field_decryption(field_name, field_value, cipher, config, log)
             log.info("Reidentification successful", extra={'field_name': field_name})
             response = PseudonymisationResponse(field_name=field_name, field_value=result)
             return response.to_dict()

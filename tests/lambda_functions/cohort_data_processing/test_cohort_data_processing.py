@@ -10,7 +10,8 @@ from lambda_functions.cohort_data_processing.cohort_data_processing import (
     clean_and_validate_nhs_df,
     load_and_clean_nhs_csv,
     get_env_variables,
-    REQUIRED_ENV_VARS
+    pseudonymise_nhs_numbers,
+    REQUIRED_ENV_VARS, lambda_handler
 )
 
 
@@ -215,3 +216,210 @@ def test_get_env_variables_missing():
     missing = [v for v in REQUIRED_ENV_VARS if v not in os.environ]
     for mv in missing:
         assert mv in str(excinfo.value)
+
+
+def test_get_env_variables_strips_whitespace():
+    for var in REQUIRED_ENV_VARS:
+        os.environ[var] = f"  value_for_{var}  "
+    result = get_env_variables()
+    for var in REQUIRED_ENV_VARS:
+        assert result[var] == f"value_for_{var}"
+        assert not result[var].startswith(" ")
+        assert not result[var].endswith(" ")
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.invoke_lambda")
+def test_pseudonymise_nhs_numbers_success(mock_invoke_lambda):
+    nhs_numbers = {"9434765919", "8314495581", "8132262247"}
+    lambda_function = "test-pseudo-lambda"
+    mock_invoke_lambda.return_value = {
+        "field_name": "nhs_number",
+        "field_value": ["pseudo_1", "pseudo_2", "pseudo_3"]
+    }
+
+    result = pseudonymise_nhs_numbers(nhs_numbers, lambda_function)
+
+    mock_invoke_lambda.assert_called_once()
+    call_args = mock_invoke_lambda.call_args[0]
+    assert call_args[0] == lambda_function
+
+    payload = call_args[1]
+    assert payload["action"] == "encrypt"
+    assert payload["field_name"] == "nhs_number"
+    assert len(payload["field_value"]) == 3
+    assert all(nhs in payload["field_value"] for nhs in nhs_numbers)
+
+    assert isinstance(result, set)
+    assert len(result) == 3
+    assert result == {"pseudo_1", "pseudo_2", "pseudo_3"}
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.invoke_lambda")
+def test_pseudonymise_nhs_numbers_empty_set(mock_invoke_lambda, caplog):
+    nhs_numbers = set()
+    lambda_function = "test-pseudo-lambda"
+
+    result = pseudonymise_nhs_numbers(nhs_numbers, lambda_function)
+
+    mock_invoke_lambda.assert_not_called()
+    assert result == set()
+    assert any("Empty set provided" in m for m in caplog.messages)
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.invoke_lambda")
+def test_pseudonymise_nhs_numbers_lambda_error(mock_invoke_lambda):
+    nhs_numbers = {"9434765919"}
+    lambda_function = "test-pseudo-lambda"
+    mock_invoke_lambda.return_value = {
+        "error": "Encryption failed: invalid key"
+    }
+
+    with pytest.raises(ValueError) as excinfo:
+        pseudonymise_nhs_numbers(nhs_numbers, lambda_function)
+
+    assert "Pseudonymisation Lambda returned error" in str(excinfo.value)
+    assert "invalid key" in str(excinfo.value)
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.invoke_lambda")
+def test_pseudonymise_nhs_numbers_missing_field_value(mock_invoke_lambda):
+    nhs_numbers = {"9434765919"}
+    lambda_function = "test-pseudo-lambda"
+    mock_invoke_lambda.return_value = {
+        "field_name": "nhs_number"
+    }
+
+    with pytest.raises(ValueError) as excinfo:
+        pseudonymise_nhs_numbers(nhs_numbers, lambda_function)
+
+    assert "missing 'field_value'" in str(excinfo.value)
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.invoke_lambda")
+def test_pseudonymise_nhs_numbers_count_mismatch(mock_invoke_lambda):
+    nhs_numbers = {"9434765919", "8314495581", "8132262247"}
+    lambda_function = "test-pseudo-lambda"
+    mock_invoke_lambda.return_value = {
+        "field_name": "nhs_number",
+        "field_value": ["pseudo_1", "pseudo_2"]
+    }
+
+    with pytest.raises(ValueError) as excinfo:
+        pseudonymise_nhs_numbers(nhs_numbers, lambda_function)
+
+    assert "returned 2 values, expected 3" in str(excinfo.value)
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.invoke_lambda")
+def test_pseudonymise_nhs_numbers_preserves_order(mock_invoke_lambda):
+    nhs_numbers = {"9434765919", "8132262247", "8314495581"}
+    lambda_function = "test-pseudo-lambda"
+    mock_invoke_lambda.return_value = {
+        "field_name": "nhs_number",
+        "field_value": ["pseudo_1", "pseudo_2", "pseudo_3"]
+    }
+
+    pseudonymise_nhs_numbers(nhs_numbers, lambda_function)
+
+    payload = mock_invoke_lambda.call_args[0][1]
+    nhs_list = payload["field_value"]
+    assert nhs_list == sorted(nhs_list)
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.write_to_s3")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.delete_and_log_remaining")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.pseudonymise_nhs_numbers")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_files")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_env_variables")
+def test_lambda_handler_integration(
+    mock_get_env, mock_get_files, mock_load_csv,
+    mock_pseudonymise, mock_delete, mock_write_s3
+):
+    mock_get_env.return_value = {
+        "S3_SFT_FILE_PREFIX": "bucket/sft/",
+        "S3_SFT_CHECKSUM_PREFIX": "bucket/sft-checksums/",
+        "S3_GP_FILES_PREFIX": "bucket/gp/",
+        "S3_GP_CHECKSUMS_PREFIX": "bucket/gp-checksums/",
+        "S3_COHORT_KEY": "bucket/cohort/cohort.csv",
+        "KMS_KEY_ID": "arn:aws:kms:eu-west-2:123456789012:key/test-key-id",
+        "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME": "pseudo-lambda"
+    }
+
+    mock_get_files.side_effect = [
+        ("bucket", ["sft/file1.csv"]),
+        ("bucket", ["sft-checksums/file1.sha256"]),
+        ("bucket", ["gp/gp1.csv", "gp/gp2.csv"]),
+        ("bucket", ["gp-checksums/gp1.sha256", "gp-checksums/gp2.sha256"])
+    ]
+
+    sft_df = pd.DataFrame({"nhs": ["9434765919", "8314495581", "8132262247", "9449304130", "9449304122"]})
+    gp1_df = pd.DataFrame({"nhs": ["9434765919", "8314495581", "9999999999"]})
+    gp2_df = pd.DataFrame({"nhs": ["8132262247", "9449304130", "8888888888"]})
+
+    mock_load_csv.side_effect = [sft_df, gp1_df, gp2_df]
+    mock_pseudonymise.return_value = {"pseudo_1", "pseudo_2", "pseudo_3", "pseudo_4"}
+
+    result = lambda_handler({}, None)
+
+    mock_pseudonymise.assert_called_once()
+    pseudonymise_call_args = mock_pseudonymise.call_args[0]
+    nhs_set = pseudonymise_call_args[0]
+    lambda_name = pseudonymise_call_args[1]
+
+    assert len(nhs_set) == 4
+    assert lambda_name == "pseudo-lambda"
+
+    mock_write_s3.assert_called_once()
+    write_call_args = mock_write_s3.call_args[0]
+    assert write_call_args[0] == "bucket"
+    assert write_call_args[1] == "cohort/cohort.csv"
+    assert write_call_args[2] == {"pseudo_1", "pseudo_2", "pseudo_3", "pseudo_4"}
+    assert write_call_args[3] == "arn:aws:kms:eu-west-2:123456789012:key/test-key-id"
+
+    assert mock_delete.call_count == 4
+
+    assert result["final_count"] == 4
+    assert result["pseudonymised_count"] == 4
+    assert result["cohort_key"] == "cohort/cohort.csv"
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.write_to_s3")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.delete_and_log_remaining")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.pseudonymise_nhs_numbers")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_files")
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_env_variables")
+def test_lambda_handler_no_intersections(
+    mock_get_env, mock_get_files, mock_load_csv, mock_pseudonymise, mock_delete, mock_write_s3
+):
+    mock_get_env.return_value = {
+        "S3_SFT_FILE_PREFIX": "bucket/sft/",
+        "S3_SFT_CHECKSUM_PREFIX": "bucket/sft-checksums/",
+        "S3_GP_FILES_PREFIX": "bucket/gp/",
+        "S3_GP_CHECKSUMS_PREFIX": "bucket/gp-checksums/",
+        "S3_COHORT_KEY": "bucket/cohort/cohort.csv",
+        "KMS_KEY_ID": "arn:aws:kms:eu-west-2:123456789012:key/test-key-id",
+        "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME": "pseudo-lambda"
+    }
+
+    mock_get_files.side_effect = [
+        ("bucket", ["sft/file1.csv"]),
+        ("bucket", ["sft-checksums/file1.sha256"]),
+        ("bucket", ["gp/gp1.csv"]),
+        ("bucket", ["gp-checksums/gp1.sha256"])
+    ]
+    sft_df = pd.DataFrame({"nhs": ["9434765919", "8314495581"]})
+    gp1_df = pd.DataFrame({"nhs": ["1111111111", "2222222222"]})
+
+    mock_load_csv.side_effect = [sft_df, gp1_df]
+    mock_pseudonymise.return_value = set()
+
+    result = lambda_handler({}, None)
+
+    mock_pseudonymise.assert_called_once()
+    assert mock_pseudonymise.call_args[0][0] == set()
+    assert mock_delete.call_count == 4
+    assert result["final_count"] == 0
+    assert result["pseudonymised_count"] == 0
+

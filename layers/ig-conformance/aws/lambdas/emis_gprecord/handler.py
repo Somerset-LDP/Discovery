@@ -282,7 +282,7 @@ def _encrypt(field_name: str, value: str) -> str | None:
         # Encrypt a single value
         lambda_client = boto3.client('lambda')    
         response = lambda_client.invoke(
-            FunctionName='pseudonymisation-lambda',
+            FunctionName='pseudonymisation-data-processing',
             InvocationType='RequestResponse',
             Payload=json.dumps({
                 'action': 'encrypt',

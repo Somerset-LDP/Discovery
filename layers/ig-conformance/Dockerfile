@@ -4,18 +4,14 @@ FROM public.ecr.aws/lambda/python:3.12
 # WORKDIR ${LAMBDA_TASK_ROOT}
 WORKDIR /var/task
 
-RUN pwd
-RUN ls -la
-
-
 COPY requirements.txt .
-COPY common/ ./common/
-COPY pipeline/ ./pipeline/
-COPY aws/lambdas/emis_gprecord/handler.py ./handler.py
+COPY handler.py .
+# COPY common/ ./common/
+# COPY pipeline/ ./pipeline/
+# COPY aws/lambdas/emis_gprecord/handler.py ./handler.py
 
-RUN pwd
-RUN ls -la
-
+# RUN pwd
+# RUN ls -la
 
 RUN --mount=type=secret,id=ssl-certs \
     if [ -f /run/secrets/ssl-certs ]; then \
@@ -24,7 +20,7 @@ RUN --mount=type=secret,id=ssl-certs \
         PIP_CERT=""; \
     fi && \
     echo "Using cert: $PIP_CERT" && \
-    pip install ${PIP_CERT:+--cert $PIP_CERT} --no-cache-dir -r requirements.txt
+    pip install ${PIP_CERT:+--cert $PIP_CERT} --no-cache-dir -r requirements.txt --target .
 
 # Set the Lambda handler
 CMD ["handler.lambda_handler"]

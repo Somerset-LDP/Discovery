@@ -19,7 +19,6 @@ jobs:
           ls -la layers/ig-conformance/
 
       - name: Build image
-        working-directory: ./layers/ig-conformance/ 
         uses: delivops/ecr-build-action@v0.0.10
         with:
           path: ./layers/ig-conformance/

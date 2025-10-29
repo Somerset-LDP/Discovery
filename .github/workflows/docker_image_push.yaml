@@ -17,7 +17,8 @@ jobs:
           echo "PWD: $(pwd)"
           ls -la
           ls -la layers/ig-conformance/
-      - name: Build image 
+      - name: Build image
+        working-directory: ./layers/ig-conformance/
         uses: delivops/ecr-build-action@v0.0.10
         with:
           image_name: "somerset-647582858282-dev-account-ecr"
@@ -25,11 +26,5 @@ jobs:
           build_args: "ENV=dev,VERSION=${{ github.sha }}"
           aws_account_id: "647582858282"
           aws_region: "eu-west-2"
-          dockerfile_path: "layers/ig-conformance/Dockerfile"
           aws_role: "GithubRunnerRole"
           no_cache: true
-
-      - name: Debug workspace
-        run: |
-          echo "PWD: $(pwd)"
-          ls -la layers/ig-conformance/

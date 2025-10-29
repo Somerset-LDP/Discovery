@@ -17,10 +17,12 @@ jobs:
           echo "PWD: $(pwd)"
           ls -la
           ls -la layers/ig-conformance/
+
       - name: Build image
-        working-directory: ./layers/ig-conformance/
+        working-directory: ./layers/ig-conformance/ 
         uses: delivops/ecr-build-action@v0.0.10
         with:
+          path: ./layers/ig-conformance/
           image_name: "somerset-647582858282-dev-account-ecr"
           tag: "latest,sha-${{ github.sha }}"
           build_args: "ENV=dev,VERSION=${{ github.sha }}"

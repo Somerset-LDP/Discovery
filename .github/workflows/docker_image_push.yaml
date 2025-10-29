@@ -10,13 +10,15 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
       - name: Debug workspace
         run: |
           echo "PWD: $(pwd)"
           ls -la
           ls -la layers/ig-conformance/
-      - uses: actions/checkout@v4
-      - uses: delivops/ecr-build-action@v0.0.10
+      - name: Build image 
+        uses: delivops/ecr-build-action@v0.0.10
         with:
           image_name: "somerset-647582858282-dev-account-ecr"
           tag: "latest,sha-${{ github.sha }}"

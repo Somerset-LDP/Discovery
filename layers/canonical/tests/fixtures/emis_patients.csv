@@ -1,0 +1,14 @@
+LDP Dataset - Patient and Encounter,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+Parent Population,LDP Dataset - Over 65s,,,,,,,,,,,,,,,,
+Last Run:,24/10/2025 13:02,Relative Date:,24/10/2025 13:02,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+Population Count,Males,Females,,,,,,,,,,,,,,,
+2,1,1,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+Complete results are available,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+Patient Details,Patient Details,Patient Details,Patient Details,Patient Details,Patient Details,Patient Details,Patient Details,Height,Height,Height,Weight,Weight,Weight,Consultations,Consultations,Consultations,Consultations
+NHS Number,Given Name,Family Name,Date of Birth,Postcode,Number and Street,Ethnic Origin,Gender,Value,Unit of Measure,Date,Value,Unit of Measure,Date,Consultation ID,Date,Type of Consultation,User Details' User Type
+111 222 3333,Leonard,Morse,01/01/1950,BA20 1SN,22 Horsey Lane,White British - ethnic category 2001 census,Male,163,cm,27-Jun-25,72,kg,27-Jun-25,23627683,21-Sep-25,Face to face consultation,Physiotherapist Specialist Practitioner
+222 111 3333,Skylar,Spork,03/02/1947,TA1 1HE,The Deane House,White: English or Welsh or Scottish or Northern Irish or British - England and Wales ethnic category 2011 census,Female,154,cm,02-May-25,,,02-May-25,15626845,15-May-25,Telephone consultation,Health and Wellbeing Coaches

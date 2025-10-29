@@ -18,13 +18,14 @@ jobs:
           ls -la
           ls -la layers/ig-conformance/
 
-      - name: Build image
+      - name: Build imagegit s
         uses: delivops/ecr-build-action@v0.0.10
         with:
           path: ./layers/ig-conformance/
           image_name: "somerset-647582858282-dev-account-ecr"
           tag: "latest,sha-${{ github.sha }}"
           build_args: "ENV=dev,VERSION=${{ github.sha }}"
+          dockerfile_path: ./layers/ig-conformance/Dockerfile
           aws_account_id: "647582858282"
           aws_region: "eu-west-2"
           aws_role: "GithubRunnerRole"

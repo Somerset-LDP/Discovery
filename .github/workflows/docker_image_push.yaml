@@ -1,4 +1,4 @@
-name: Build and Push Image
+name: Build and Push ig-conformance Image to ECR
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
           ls -la
           ls -la layers/ig-conformance/
 
-      - name: Build imagegit s
+      - name: Build ig-conformance image
         uses: delivops/ecr-build-action@v0.0.10
         with:
           path: ./layers/ig-conformance/

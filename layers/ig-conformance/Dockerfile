@@ -13,8 +13,7 @@ RUN --mount=type=secret,id=ssl-certs \
     fi && \
     echo "Using cert: $PIP_CERT" && \
     pip install ${PIP_CERT:+--cert $PIP_CERT} --no-cache-dir -r requirements.txt
-RUN pwd
-RUN ls -la
+
 # Copy source code maintaining directory structure
 COPY common/ ./common/
 COPY pipeline/emis_gprecord.py ./pipeline/

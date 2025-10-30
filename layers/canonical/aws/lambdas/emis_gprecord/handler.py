@@ -88,7 +88,14 @@ def _read_patients(path: str) -> pd.DataFrame:
             raise ValueError(f"Expected one file, got {len(file)}: {path}")
 
         # Read CSV with all columns as strings to preserve leading zeros and handle data consistently
-        df = pd.read_csv(file, dtype=str, keep_default_na=False, na_values=['', 'NULL', 'null', 'None'],  skiprows=10, header=[0, 1])
+        df = pd.read_csv(
+            file, 
+            dtype=str, 
+            keep_default_na=False, 
+            na_values=['', 'NULL', 'null', 'None'],  
+            skiprows=2, # skip metadata rows
+            header=0 # Single header row
+        )
 
     return df    
 

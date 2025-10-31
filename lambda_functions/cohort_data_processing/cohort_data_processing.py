@@ -22,14 +22,18 @@ ENCODING = "utf-8"
 NHS_NUMBER_COLUMN = "nhs"
 FILE_EXTENSION = ".csv"
 CHECKSUM_EXTENSION = ".sha256"
+MAX_COHORT_SIZE = 5000
 REQUIRED_ENV_VARS = [
-    "S3_SFT_FILE_PREFIX",
-    "S3_SFT_CHECKSUM_PREFIX",
     "S3_GP_FILES_PREFIX",
     "S3_GP_CHECKSUMS_PREFIX",
     "S3_COHORT_KEY",
     "KMS_KEY_ID",
-    "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME"
+    "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME",
+    "PROCESS_SFT_FILES"
+]
+SFT_REQUIRED_ENV_VARS = [
+    "S3_SFT_FILE_PREFIX",
+    "S3_SFT_CHECKSUM_PREFIX"
 ]
 
 
@@ -144,36 +148,135 @@ def pseudonymise_nhs_numbers(nhs_numbers: Set[str], lambda_function_name: str) -
     return pseudonymised_set
 
 
-def get_env_variables() -> dict:
+def get_env_variables() -> tuple[dict, bool]:
     env_vars = {var: os.getenv(var, '').strip() for var in REQUIRED_ENV_VARS}
-    missing = [var for var, val in env_vars.items() if not val]
+    process_sft = env_vars.get("PROCESS_SFT_FILES", "").lower() in ['true', '1', 'yes']
+
+    if process_sft:
+        for var in SFT_REQUIRED_ENV_VARS:
+            value = os.getenv(var, '').strip()
+            if not value:
+                logger.error(f"PROCESS_SFT_FILES is enabled but {var} is missing")
+                raise KeyError(f"Missing required environment variable: {var}")
+            env_vars[var] = value
+
+    missing = [var for var, val in env_vars.items() if not val and var not in SFT_REQUIRED_ENV_VARS]
     if missing:
         logger.error(f"Missing required environment variables: {', '.join(missing)}")
         raise KeyError(f"Missing required environment variables: {', '.join(missing)}")
-    return env_vars
+    return env_vars, process_sft
+
+
+def calculate_sft_gp_intersections(
+    sft_set: Set[str],
+    gp_file_keys: List[str],
+    gp_bucket: str,
+    gp_checksum_bucket: str,
+    gp_checksum_prefix: str
+) -> Set[str]:
+    intersections = []
+
+    for gp_key in gp_file_keys:
+        filename = gp_key.split("/")[-1]
+        gp_checksum_key = f"{gp_checksum_prefix}{filename.replace(FILE_EXTENSION, CHECKSUM_EXTENSION)}"
+        gp_df = load_and_clean_nhs_csv(gp_bucket, gp_key, gp_checksum_bucket, gp_checksum_key, filetype="GP")
+
+        gp_set = set(gp_df[NHS_NUMBER_COLUMN])
+        intersection = sft_set & gp_set
+
+        intersections.append(intersection)
+        logger.info(f"SFT and {filename} intersection: {len(intersection)} NHS numbers")
+
+    if not intersections:
+        logger.warning('No intersections found between SFT and GP files')
+        return set()
+
+    cohort = set().union(*intersections)
+    logger.info(f'Final cohort (union of all intersections): {len(cohort)} NHS numbers')
+    return cohort
+
+
+def calculate_gp_union_with_limit(
+    gp_file_keys: List[str],
+    gp_bucket: str,
+    gp_checksum_bucket: str,
+    gp_checksum_prefix: str,
+    max_cohort_size: int = MAX_COHORT_SIZE
+) -> Set[str]:
+    num_files = len(gp_file_keys)
+    samples_per_file = max_cohort_size // num_files
+
+    logger.info(f'GP-only mode: Sampling {samples_per_file} NHS numbers per GP file (max total: {max_cohort_size})')
+
+    cohort = set()
+
+    for gp_key in gp_file_keys:
+        filename = gp_key.split("/")[-1]
+        gp_checksum_key = f"{gp_checksum_prefix}{filename.replace(FILE_EXTENSION, CHECKSUM_EXTENSION)}"
+        gp_df = load_and_clean_nhs_csv(gp_bucket, gp_key, gp_checksum_bucket, gp_checksum_key, filetype="GP")
+
+        gp_nhs_numbers = list(gp_df[NHS_NUMBER_COLUMN])
+        available_count = len(gp_nhs_numbers)
+        sample_count = min(samples_per_file, available_count)
+
+        sampled_nhs = set(gp_nhs_numbers[:sample_count])
+        cohort.update(sampled_nhs)
+
+        logger.info(f"GP {filename}: sampled {sample_count}/{available_count} NHS numbers")
+
+    logger.info(f'Final cohort (GP union with sampling): {len(cohort)} NHS numbers')
+    return cohort
+
+
+def load_sft_data(sft_file_prefix: str, sft_checksum_prefix: str) -> tuple[str, str, str, str, Set[str]]:
+    sft_bucket, sft_keys = get_files(sft_file_prefix)
+    sft_checksum_bucket, sft_checksum_keys = get_files(sft_checksum_prefix)
+    sft_file_key = sft_keys[0]
+    sft_checksum_key = sft_checksum_keys[0]
+
+    sft_df = load_and_clean_nhs_csv(
+        sft_bucket, sft_file_key,
+        sft_checksum_bucket, sft_checksum_key,
+        filetype='SFT'
+    )
+    sft_set = set(sft_df[NHS_NUMBER_COLUMN])
+
+    return sft_bucket, sft_file_key, sft_checksum_bucket, sft_checksum_key, sft_set
+
+
+def cleanup_source_files(
+    gp_bucket: str,
+    gp_file_keys: List[str],
+    gp_checksum_bucket: str,
+    gp_checksum_keys: List[str],
+    gp_files_prefix: str,
+    gp_checksums_prefix: str,
+    sft_data: tuple = None
+) -> None:
+    if sft_data:
+        sft_bucket, sft_file_key, sft_checksum_bucket, sft_checksum_key = sft_data
+        delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))
+        delete_and_log_remaining(sft_checksum_bucket, [sft_checksum_key], os.path.dirname(sft_checksum_key))
+
+    delete_and_log_remaining(gp_bucket, gp_file_keys, gp_files_prefix.split('/', 1)[1])
+    delete_and_log_remaining(gp_checksum_bucket, gp_checksum_keys, gp_checksums_prefix)
 
 
 def lambda_handler(event, context) -> dict:
+    """
+    Two processing modes:
+    1. SFT+GP mode: Calculate intersections between SFT and each GP file
+    2. GP-only mode: Sample proportionally from GP files (max 5000 total)
+    """
     try:
-        # ENV variables
-        env_vars = get_env_variables()
-        sft_file_prefix = env_vars["S3_SFT_FILE_PREFIX"]
-        sft_checksum_prefix = env_vars["S3_SFT_CHECKSUM_PREFIX"]
+        env_vars, process_sft = get_env_variables()
+
         gp_files_prefix = env_vars["S3_GP_FILES_PREFIX"]
         gp_checksums_prefix = env_vars["S3_GP_CHECKSUMS_PREFIX"]
         cohort_path = env_vars["S3_COHORT_KEY"]
         kms_key_id = env_vars["KMS_KEY_ID"]
         pseudonymisation_lambda = env_vars["PSEUDONYMISATION_LAMBDA_FUNCTION_NAME"]
 
-        # SFT
-        sft_bucket, sft_keys = get_files(sft_file_prefix)
-        sft_checksum_bucket, sft_checksum_keys = get_files(sft_checksum_prefix)
-        sft_file_key = sft_keys[0]
-        sft_checksum_key = sft_checksum_keys[0]
-        sft_df = load_and_clean_nhs_csv(sft_bucket, sft_file_key, sft_checksum_bucket, sft_checksum_key, filetype='SFT')
-        sft_set = set(sft_df[NHS_NUMBER_COLUMN])
-
-        # GP's
         gp_bucket, gp_file_keys = get_files(gp_files_prefix)
         gp_checksum_bucket, gp_checksum_keys = get_files(gp_checksums_prefix)
 
@@ -184,45 +287,46 @@ def lambda_handler(event, context) -> dict:
         gp_checksum_prefix = gp_checksums_prefix.split('/', 1)[1]
         logger.info(f'Found {len(gp_file_keys)} GP files to process.')
 
-        # Intersection per GP file
-        intersections = []
-        for gp_key in gp_file_keys:
-            filename = gp_key.split("/")[-1]
-            gp_checksum_key = f"{gp_checksum_prefix}{filename.replace(FILE_EXTENSION, CHECKSUM_EXTENSION)}"
-            gp_df = load_and_clean_nhs_csv(gp_bucket, gp_key, gp_checksum_bucket, gp_checksum_key, filetype="GP")
+        sft_cleanup_data = None
+        if process_sft:
+            sft_bucket, sft_file_key, sft_checksum_bucket, sft_checksum_key, sft_set = load_sft_data(
+                env_vars["S3_SFT_FILE_PREFIX"],
+                env_vars["S3_SFT_CHECKSUM_PREFIX"]
+            )
+            sft_cleanup_data = (sft_bucket, sft_file_key, sft_checksum_bucket, sft_checksum_key)
 
-            gp_set = set(gp_df[NHS_NUMBER_COLUMN])
-            common = sft_set & gp_set
-
-            intersections.append(common)
-            logger.info(f"Intersection {filename} count: {len(common)}")
-
-        # Union of all intersections
-        all_common = set()
-        if not intersections:
-            logger.warning('No intersections found, final union is empty.')
+            cohort = calculate_sft_gp_intersections(
+                sft_set,
+                gp_file_keys,
+                gp_bucket,
+                gp_checksum_bucket,
+                gp_checksum_prefix
+            )
         else:
-            all_common = set().union(*intersections)
-        logger.info(f'Final union count: {len(all_common)}')
+            cohort = calculate_gp_union_with_limit(
+                gp_file_keys,
+                gp_bucket,
+                gp_checksum_bucket,
+                gp_checksum_prefix
+            )
 
-        # Pseudonymise cohort
-        pseudonymised_cohort = pseudonymise_nhs_numbers(
-            all_common,
-            pseudonymisation_lambda
-        )
+        pseudonymised_cohort = pseudonymise_nhs_numbers(cohort, pseudonymisation_lambda)
 
-        # Write cohort
         cohort_bucket, cohort_key = cohort_path.split('/', 1)
         write_to_s3(cohort_bucket, cohort_key, pseudonymised_cohort, kms_key_id)
 
-        # Cleanup
-        delete_and_log_remaining(sft_bucket, [sft_file_key], os.path.dirname(sft_file_key))
-        delete_and_log_remaining(sft_checksum_bucket, [sft_checksum_key], os.path.dirname(sft_checksum_key))
-        delete_and_log_remaining(gp_bucket, gp_file_keys, gp_files_prefix.split('/', 1)[1])
-        delete_and_log_remaining(gp_checksum_bucket, gp_checksum_keys, gp_checksum_prefix)
+        cleanup_source_files(
+            gp_bucket, gp_file_keys,
+            gp_checksum_bucket, gp_checksum_keys,
+            gp_files_prefix, gp_checksums_prefix,
+            sft_cleanup_data
+        )
+
+        logger.info(f"Cohort processing completed. Final count: {len(cohort)}, Pseudonymised count: {len(pseudonymised_cohort)}")
 
         return {
-            'final_count': len(all_common),
+            'processing_mode': 'SFT+GP' if process_sft else 'GP-only',
+            'final_count': len(cohort),
             'pseudonymised_count': len(pseudonymised_cohort),
             'cohort_key': cohort_key
         }

@@ -63,3 +63,14 @@ docker buildx build \
   -t emis_gprecord_canonical:latest \
   -f Dockerfile .
 ```
+
+## Environment variables
+
+* `INPUT_LOCATION` - path to input file (likely this will point to a path in the pseudonmisation layer that holds psedunymised GP records in EMIS format)
+* `OUTPUT_DB_HOST` - host name of the database server
+* `OUTPUT_DB_PORT` - port that the database server is listening on (defaults to 5432)
+* `OUTPUT_DB_NAME` - the name of the database to connect to (defaults to ldp)
+* `OUTPUT_DB_USERNAME_SECRET` - the name of the secret holding the output database username eg canonical_layer/db_user_name
+* `OUTPUT_DB_PASSWORD_SECRET` - the name of the secret holding the output database password eg canonical_layer/db_user_password
+
+For testing the `OUTPUT_DB_USERNAME` and `OUTPUT_DB_USERNAME` variables can be set instead of the `*_SECRET` equivalents but this is not recommended for production

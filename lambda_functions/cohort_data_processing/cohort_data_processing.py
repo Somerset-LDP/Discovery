@@ -45,11 +45,11 @@ def get_files(file_prefix: str) -> (str, List[str]):
 def validate_checksum(content: bytes, checksum_content: bytes, key: str) -> None:
     try:
         # Allow sha256sum-style files: "<hex>  filename"
-        expected_checksum = checksum_content.decode(ENCODING).strip().split()[0]
+        expected_checksum = checksum_content.decode(ENCODING).strip().split()[0].lower()
     except UnicodeDecodeError as e:
         logger.error(f"Checksum decode failed for {key}: {e}")
         raise
-    actual_checksum = hashlib.sha256(content).hexdigest()
+    actual_checksum = hashlib.sha256(content).hexdigest().lower()
     if actual_checksum != expected_checksum:
         msg = f"Checksum mismatch for {key}: expected {expected_checksum}, got {actual_checksum}"
         logger.error(msg)

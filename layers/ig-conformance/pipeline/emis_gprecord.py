@@ -3,7 +3,10 @@ from typing import Any, List, Dict, Callable
 import logging
 from common.cohort_membership import is_cohort_member
 
-def run(cohort_store: pd.Series, records: List[Dict[str, Any]], encrypt: Callable[[str, str], str | None]) -> List[Dict[str, Any]]:
+# Column position constants based on the header row
+NHS_NUMBER_COL = 0
+
+def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, str], str | None]) -> pd.DataFrame:
     filtered_records = []
     
     logger = logging.getLogger(__name__)
@@ -11,9 +14,10 @@ def run(cohort_store: pd.Series, records: List[Dict[str, Any]], encrypt: Callabl
     logger.info(f"Starting GP pipeline processing for {len(records)} records")
     logger.info(f"There are {len(cohort_store)} cohort members")
 
-    for index, record in enumerate(records):
+    for index, record in records.iterrows():
         logger.debug(f"Processing record at index {index}")
-        nhs_number = record.get("nhs_number")
+        nhs_number = record.iloc[NHS_NUMBER_COL]
+        #nhs_number = record.get("nhs_number")
         if not nhs_number or str(nhs_number).lower() in ['nan', 'none', 'null', '']:
             logger.warning(f"Record at index {index} has no NHS number: {record}")
             continue
@@ -30,7 +34,7 @@ def run(cohort_store: pd.Series, records: List[Dict[str, Any]], encrypt: Callabl
             logger.error(f"Failed to encrypt NHS number for record at index {index}")
 
     logger.info(f"Filtered {len(filtered_records)} records that are in cohort from an initial {len(records)} records")
-    return filtered_records            
+    return pd.DataFrame(filtered_records)            
 
 def _encrypt_nhs_number(nhs_number: str, encrypt: Callable[[str, str], str | None]) -> str | None:
     encrypted_nhs = None

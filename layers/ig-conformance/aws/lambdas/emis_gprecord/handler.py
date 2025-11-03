@@ -41,8 +41,14 @@ def lambda_handler(event, context):
         gp_records_store_location = os.getenv("INPUT_LOCATION")
         output_location = os.getenv("OUTPUT_LOCATION")
         if cohort_store_location and gp_records_store_location and output_location:
-            cohort_member_records, gp_records = _retain_cohort_members(cohort_store_location, gp_records_store_location)
-            output_file = _write_output(cohort_member_records, output_location)
+            header_rows, gp_records = _read_gp_records(gp_records_store_location)
+            cohort_store = read_cohort_members(cohort_store_location)
+
+            cohort_member_records = run(cohort_store, gp_records, _encrypt)
+            logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
+
+            # TODO - need to keep first three rows
+            output_file = _write_output(cohort_member_records, header_rows, output_location)
             delete_file(gp_records_store_location)
 
             logger.info("GP pipeline executed successfully")
@@ -74,35 +80,33 @@ def lambda_handler(event, context):
 
     return response
 
-def _retain_cohort_members(cohort_store_location, gp_records_store_location) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
-    Main function to retain GP records for cohort members.
-    Reads environment variables for input/output locations.
-    """
-    cohort_member_records = []
-    gp_records = []
-
-    if cohort_store_location and gp_records_store_location:
-        gp_records = _read_gp_records(gp_records_store_location)
-        cohort_store = read_cohort_members(cohort_store_location)
-
-        cohort_member_records = run(cohort_store, gp_records, _encrypt)
-        logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
-
-    return (cohort_member_records, gp_records)
-
 # File system methods
 
-def _read_gp_records(location: str) -> List[Dict[str, Any]]:
-    df = read_file(location)
-    #df = pd.read_csv(location, dtype={'nhs': str})
+def _read_gp_records(path: str) -> Tuple[List[str], pd.DataFrame]:
+    with fsspec.open(path, mode="r", encoding="utf-8") as file:
+        if isinstance(file, list):
+            raise ValueError(f"Expected one file, got {len(file)}: {path}")
+        
+        # Read the first 3 lines as headers
+        lines = file.readlines()
+        header_rows = [line.strip() for line in lines[:3]]
+        
+        # Reset file pointer and read as DataFrame
+        file.seek(0)        
 
-    # Ensure all column names are strings
-    df.columns = df.columns.astype(str)    
+        # Read CSV with all columns as strings to preserve leading zeros and handle data consistently
+        df = pd.read_csv(
+            file, 
+            dtype=str, 
+            keep_default_na=False, 
+            na_values=['', 'NULL', 'null', 'None'],  
+            skiprows=2, # skip metadata rows
+            header=0 # Single header row
+        )
 
-    return cast(List[Dict[str, Any]], df.to_dict(orient='records'))
+    return header_rows, df
 
-def _write_gp_records(records: List[Dict[str, Any]], location: str) -> str:
+def _write_gp_records(records: pd.DataFrame, header_rows: List[str], location: str) -> str:
     """
     Write GP records to CSV file in the same format as input
     
@@ -121,32 +125,35 @@ def _write_gp_records(records: List[Dict[str, Any]], location: str) -> str:
 
     logger.info(f"Writing {len(records)} records to: {file_path}")
 
-    if not records:
-        # Create empty DataFrame with no columns if no records
-        df = pd.DataFrame()
-    else:
-        # Convert list of dictionaries back to DataFrame
-        df = pd.DataFrame(records)
-        
-        # Ensure nhs column is treated as string to preserve formatting
-        if 'nhs_number' in df.columns:
-            df['nhs_number'] = df['nhs_number'].astype(str)
-    
-    # Write to CSV with same format as input
     try:
-        df.to_csv(file_path, index=False)
+        with fsspec.open(file_path, mode="w", encoding="utf-8") as file:
+            # Check if file is a list (shouldn't happen with single file path, but fsspec can be unpredictable)
+            if isinstance(file, list):
+                raise ValueError(f"Expected single file handle, got list: {file_path}")
+
+            # Write the original header rows
+            for header in header_rows:
+                file.write(header + '\n')
+            
+            # Write the filtered data (without writing headers again)
+            if not records.empty:
+                records.to_csv(file, index=False, header=True)
+            else:
+                # If no records, still write column headers
+                file.write(','.join(records.columns) + '\n')
+        
         logger.info(f"Successfully wrote {len(records)} records to {file_path}")
     except Exception as e:
         logger.error(f"Failed to write GP records to {file_path}: {str(e)}", exc_info=True)
-        raise IOError(f"Failed to write GP records to {file_path}: {str(e)}")
+        raise IOError(f"Failed to write GP records to {file_path}: {str(e)}")    
 
     return file_path
 
-def _write_output(cohort_member_records, output_location) -> str | None:
+def _write_output(cohort_member_records, header_rows, output_location) -> str | None:
     # Write the filtered results to output file
     output_file = None
     if cohort_member_records:
-        output_file = _write_gp_records(cohort_member_records, output_location)
+        output_file = _write_gp_records(cohort_member_records, header_rows, output_location)
         logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
 
     return output_file

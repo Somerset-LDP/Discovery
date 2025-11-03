@@ -11,6 +11,8 @@ from lambda_functions.cohort_data_processing.cohort_data_processing import (
     load_and_clean_nhs_csv,
     get_env_variables,
     pseudonymise_nhs_numbers,
+    calculate_sft_gp_intersections,
+    calculate_gp_union_with_limit,
     REQUIRED_ENV_VARS, lambda_handler
 )
 
@@ -201,9 +203,10 @@ def test_load_and_clean_nhs_csv_removes_duplicates(mock_validate_checksum, mock_
 def test_get_env_variables_all_present():
     for var in REQUIRED_ENV_VARS:
         os.environ[var] = f"value_for_{var}"
-    result = get_env_variables()
+    result, process_sft = get_env_variables()
     for var in REQUIRED_ENV_VARS:
         assert result[var] == f"value_for_{var}"
+    assert process_sft is False
 
 
 def test_get_env_variables_missing():
@@ -221,11 +224,12 @@ def test_get_env_variables_missing():
 def test_get_env_variables_strips_whitespace():
     for var in REQUIRED_ENV_VARS:
         os.environ[var] = f"  value_for_{var}  "
-    result = get_env_variables()
+    result, process_sft = get_env_variables()
     for var in REQUIRED_ENV_VARS:
         assert result[var] == f"value_for_{var}"
         assert not result[var].startswith(" ")
         assert not result[var].endswith(" ")
+    assert process_sft is False
 
 
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.invoke_lambda")
@@ -326,6 +330,130 @@ def test_pseudonymise_nhs_numbers_preserves_order(mock_invoke_lambda):
     assert nhs_list == sorted(nhs_list)
 
 
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_sft_gp_intersections_full_overlap(mock_load_csv):
+    sft_set = {"9434765919", "8314495581", "8132262247", "9449304130"}
+    gp_file_keys = ["gp/gp1.csv", "gp/gp2.csv"]
+    gp1_df = pd.DataFrame({"nhs": ["9434765919", "8314495581"]})
+    gp2_df = pd.DataFrame({"nhs": ["8132262247", "9449304130"]})
+    mock_load_csv.side_effect = [gp1_df, gp2_df]
+
+    result = calculate_sft_gp_intersections(
+        sft_set, gp_file_keys, "bucket", "checksum_bucket", "checksums/"
+    )
+
+    assert len(result) == 4
+    assert result == {"9434765919", "8314495581", "8132262247", "9449304130"}
+    assert mock_load_csv.call_count == 2
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_sft_gp_intersections_partial_overlap(mock_load_csv):
+    sft_set = {"9434765919", "8314495581", "8132262247", "9449304130"}
+    gp_file_keys = ["gp/gp1.csv"]
+    gp1_df = pd.DataFrame({"nhs": ["9434765919", "8314765919", "1111111111"]})
+    mock_load_csv.return_value = gp1_df
+
+    result = calculate_sft_gp_intersections(
+        sft_set, gp_file_keys, "bucket", "checksum_bucket", "checksums/"
+    )
+
+    assert len(result) == 1
+    assert result == {"9434765919"}
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_sft_gp_intersections_no_overlap(mock_load_csv):
+    sft_set = {"9434765919", "8314495581"}
+    gp_file_keys = ["gp/gp1.csv"]
+    gp1_df = pd.DataFrame({"nhs": ["1111111111", "2222222222"]})
+    mock_load_csv.return_value = gp1_df
+
+    result = calculate_sft_gp_intersections(
+        sft_set, gp_file_keys, "bucket", "checksum_bucket", "checksums/"
+    )
+
+    assert len(result) == 0
+    assert result == set()
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_sft_gp_intersections_union_of_multiple_files(mock_load_csv):
+    sft_set = {"9434765919", "8314495581", "8132262247", "9449304130"}
+    gp_file_keys = ["gp/gp1.csv", "gp/gp2.csv"]
+    gp1_df = pd.DataFrame({"nhs": ["9434765919", "8314495581"]})
+    gp2_df = pd.DataFrame({"nhs": ["8132262247"]})
+    mock_load_csv.side_effect = [gp1_df, gp2_df]
+
+    result = calculate_sft_gp_intersections(
+        sft_set, gp_file_keys, "bucket", "checksum_bucket", "checksums/"
+    )
+
+    assert len(result) == 3
+    assert result == {"9434765919", "8314495581", "8132262247"}
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_gp_union_with_limit_below_limit(mock_load_csv):
+    gp_file_keys = ["gp/gp1.csv", "gp/gp2.csv"]
+    gp1_df = pd.DataFrame({"nhs": ["9434765919", "8314765919"]})
+    gp2_df = pd.DataFrame({"nhs": ["8132262247", "9449304130"]})
+    mock_load_csv.side_effect = [gp1_df, gp2_df]
+
+    result = calculate_gp_union_with_limit(
+        gp_file_keys, "bucket", "checksum_bucket", "checksums/", max_cohort_size=5000
+    )
+
+    assert len(result) == 4
+    assert result == {"9434765919", "8314765919", "8132262247", "9449304130"}
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_gp_union_with_limit_sampling(mock_load_csv):
+    gp_file_keys = ["gp/gp1.csv", "gp/gp2.csv"]
+    gp1_nhs = [f"{i:010d}" for i in range(9434765919, 9434765919 + 3000)]
+    gp2_nhs = [f"{i:010d}" for i in range(8314495581, 8314495581 + 3000)]
+    gp1_df = pd.DataFrame({"nhs": gp1_nhs})
+    gp2_df = pd.DataFrame({"nhs": gp2_nhs})
+    mock_load_csv.side_effect = [gp1_df, gp2_df]
+
+    result = calculate_gp_union_with_limit(
+        gp_file_keys, "bucket", "checksum_bucket", "checksums/", max_cohort_size=5000
+    )
+
+    assert len(result) == 5000
+    mock_load_csv.assert_called()
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_gp_union_with_limit_single_file(mock_load_csv):
+    gp_file_keys = ["gp/gp1.csv"]
+    gp1_nhs = [f"{i:010d}" for i in range(9434765919, 9434765919 + 6000)]
+    gp1_df = pd.DataFrame({"nhs": gp1_nhs})
+    mock_load_csv.return_value = gp1_df
+
+    result = calculate_gp_union_with_limit(
+        gp_file_keys, "bucket", "checksum_bucket", "checksums/", max_cohort_size=5000
+    )
+
+    assert len(result) == 5000
+
+
+@patch("lambda_functions.cohort_data_processing.cohort_data_processing.load_and_clean_nhs_csv")
+def test_calculate_gp_union_with_limit_removes_duplicates(mock_load_csv):
+    gp_file_keys = ["gp/gp1.csv", "gp/gp2.csv"]
+    gp1_df = pd.DataFrame({"nhs": ["9434765919", "8314495581", "8132262247"]})
+    gp2_df = pd.DataFrame({"nhs": ["9434765919", "8314495581", "9449304130"]})
+    mock_load_csv.side_effect = [gp1_df, gp2_df]
+
+    result = calculate_gp_union_with_limit(
+        gp_file_keys, "bucket", "checksum_bucket", "checksums/", max_cohort_size=5000
+    )
+
+    assert len(result) == 4
+    assert result == {"9434765919", "8314495581", "8132262247", "9449304130"}
+
+
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.write_to_s3")
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.delete_and_log_remaining")
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.pseudonymise_nhs_numbers")
@@ -336,27 +464,27 @@ def test_lambda_handler_integration(
     mock_get_env, mock_get_files, mock_load_csv,
     mock_pseudonymise, mock_delete, mock_write_s3
 ):
-    mock_get_env.return_value = {
-        "S3_SFT_FILE_PREFIX": "bucket/sft/",
-        "S3_SFT_CHECKSUM_PREFIX": "bucket/sft-checksums/",
-        "S3_GP_FILES_PREFIX": "bucket/gp/",
-        "S3_GP_CHECKSUMS_PREFIX": "bucket/gp-checksums/",
-        "S3_COHORT_KEY": "bucket/cohort/cohort.csv",
-        "KMS_KEY_ID": "arn:aws:kms:eu-west-2:123456789012:key/test-key-id",
-        "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME": "pseudo-lambda"
-    }
-
+    mock_get_env.return_value = (
+        {
+            "S3_SFT_FILE_PREFIX": "bucket/sft/",
+            "S3_SFT_CHECKSUM_PREFIX": "bucket/sft-checksums/",
+            "S3_GP_FILES_PREFIX": "bucket/gp/",
+            "S3_GP_CHECKSUMS_PREFIX": "bucket/gp-checksums/",
+            "S3_COHORT_KEY": "bucket/cohort/cohort.csv",
+            "KMS_KEY_ID": "arn:aws:kms:eu-west-2:123456789012:key/test-key-id",
+            "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME": "pseudo-lambda"
+        },
+        True
+    )
     mock_get_files.side_effect = [
-        ("bucket", ["sft/file1.csv"]),
-        ("bucket", ["sft-checksums/file1.sha256"]),
         ("bucket", ["gp/gp1.csv", "gp/gp2.csv"]),
-        ("bucket", ["gp-checksums/gp1.sha256", "gp-checksums/gp2.sha256"])
+        ("bucket", ["gp-checksums/gp1.sha256", "gp-checksums/gp2.sha256"]),
+        ("bucket", ["sft/file1.csv"]),
+        ("bucket", ["sft-checksums/file1.sha256"])
     ]
-
     sft_df = pd.DataFrame({"nhs": ["9434765919", "8314495581", "8132262247", "9449304130", "9449304122"]})
     gp1_df = pd.DataFrame({"nhs": ["9434765919", "8314495581", "9999999999"]})
     gp2_df = pd.DataFrame({"nhs": ["8132262247", "9449304130", "8888888888"]})
-
     mock_load_csv.side_effect = [sft_df, gp1_df, gp2_df]
     mock_pseudonymise.return_value = {"pseudo_1", "pseudo_2", "pseudo_3", "pseudo_4"}
 
@@ -393,25 +521,26 @@ def test_lambda_handler_integration(
 def test_lambda_handler_no_intersections(
     mock_get_env, mock_get_files, mock_load_csv, mock_pseudonymise, mock_delete, mock_write_s3
 ):
-    mock_get_env.return_value = {
-        "S3_SFT_FILE_PREFIX": "bucket/sft/",
-        "S3_SFT_CHECKSUM_PREFIX": "bucket/sft-checksums/",
-        "S3_GP_FILES_PREFIX": "bucket/gp/",
-        "S3_GP_CHECKSUMS_PREFIX": "bucket/gp-checksums/",
-        "S3_COHORT_KEY": "bucket/cohort/cohort.csv",
-        "KMS_KEY_ID": "arn:aws:kms:eu-west-2:123456789012:key/test-key-id",
-        "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME": "pseudo-lambda"
-    }
-
+    mock_get_env.return_value = (
+        {
+            "S3_SFT_FILE_PREFIX": "bucket/sft/",
+            "S3_SFT_CHECKSUM_PREFIX": "bucket/sft-checksums/",
+            "S3_GP_FILES_PREFIX": "bucket/gp/",
+            "S3_GP_CHECKSUMS_PREFIX": "bucket/gp-checksums/",
+            "S3_COHORT_KEY": "bucket/cohort/cohort.csv",
+            "KMS_KEY_ID": "arn:aws:kms:eu-west-2:123456789012:key/test-key-id",
+            "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME": "pseudo-lambda"
+        },
+        True
+    )
     mock_get_files.side_effect = [
-        ("bucket", ["sft/file1.csv"]),
-        ("bucket", ["sft-checksums/file1.sha256"]),
         ("bucket", ["gp/gp1.csv"]),
-        ("bucket", ["gp-checksums/gp1.sha256"])
+        ("bucket", ["gp-checksums/gp1.sha256"]),
+        ("bucket", ["sft/file1.csv"]),
+        ("bucket", ["sft-checksums/file1.sha256"])
     ]
     sft_df = pd.DataFrame({"nhs": ["9434765919", "8314495581"]})
     gp1_df = pd.DataFrame({"nhs": ["1111111111", "2222222222"]})
-
     mock_load_csv.side_effect = [sft_df, gp1_df]
     mock_pseudonymise.return_value = set()
 

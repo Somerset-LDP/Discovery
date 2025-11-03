@@ -45,6 +45,6 @@ All arguments are **optional**. If not provided, the script will fall back to en
 ```bash
 python generate_presigned_url.py \
     --kms-key arn:aws:kms:eu-west-2:123456789012:key/abcd-1234 \
-    --file-path my-bucket/uploads \
+    --file-path my-bucket/uploads/ \
     --file-name sft.csv \
     --expiration 3600

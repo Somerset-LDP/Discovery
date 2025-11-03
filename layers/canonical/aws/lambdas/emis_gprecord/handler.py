@@ -1,15 +1,23 @@
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 import pandas as pd
 import fsspec
+import boto3
+from botocore.exceptions import ClientError
 from sqlalchemy import create_engine, Engine
 from pipeline.emis_gprecord import run
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+
+
+# Global cache
+_cached_username = None
+_cached_password = None
 
 def lambda_handler(event, context):
     # read file from S3 -  df = pd.read_csv("path/to/file.csv", header=[0, 1])
@@ -22,7 +30,7 @@ def lambda_handler(event, context):
         logger.info(f"Event: {json.dumps(event, default=str)}")
 
         input_location = os.getenv("INPUT_LOCATION")
-        output_location = os.getenv("OUTPUT_LOCATION")   
+        output_location = _get_output_db_url();
 
         if input_location and output_location:
             input = _read_patients(input_location)
@@ -113,3 +121,69 @@ def _write_patients(output_df: pd.DataFrame, engine: Engine):
     except Exception as e:
         logger.error(f"Failed to write canonical Patient records to database: {e}", exc_info=True)
         raise RuntimeError(f"Failed to write canonical Patient records to database: {str(e)}") 
+    
+def _get_secret_value(secret_name: str) -> str | None:
+    """
+    Fetches a raw (non-JSON) secret string from AWS Secrets Manager.
+    """
+    secret_string = None
+
+    client = boto3.client("secretsmanager")
+
+    try:
+        response = client.get_secret_value(SecretId=secret_name)
+    except ClientError as e:
+        raise RuntimeError(f"Failed to retrieve secret '{secret_name}': {e}") from e
+
+    secret_string = response.get("SecretString")
+    if not secret_string:
+        logger.error(f"Secret '{secret_name}' has no SecretString value.")
+
+    return secret_string
+
+def _get_db_credentials() -> Tuple[str | None, str | None]:
+    """
+    Returns a tuple (username, password) using cached values if available.
+    """
+    # For testing - check direct env vars first
+    username = os.environ.get("OUTPUT_DB_USERNAME")
+    password = os.environ.get("OUTPUT_DB_PASSWORD")
+
+    if username and password:
+        return username, password
+
+    global _cached_username, _cached_password
+
+    OUTPUT_DB_USERNAME_SECRET = os.environ.get("OUTPUT_DB_USERNAME_SECRET")
+    OUTPUT_DB_PASSWORD_SECRET = os.environ.get("OUTPUT_DB_PASSWORD_SECRET")  
+
+    if not OUTPUT_DB_USERNAME_SECRET or not OUTPUT_DB_PASSWORD_SECRET:
+        logger.error(f"Missing environment variables for database credentials")
+        return None, None
+
+    # Only fetch secrets that are not yet cached
+    global _cached_username, _cached_password
+
+    if _cached_username is None:
+        _cached_username = _get_secret_value(OUTPUT_DB_USERNAME_SECRET)
+
+    if _cached_password is None:
+        _cached_password = _get_secret_value(OUTPUT_DB_PASSWORD_SECRET)
+
+    return (_cached_username, _cached_password)
+
+def _get_output_db_url() -> str | None:
+    """
+    Constructs the database URL using credentials and environment variables.
+    """
+    DB_HOST = os.environ.get("OUTPUT_DB_HOST")
+    DB_PORT = os.environ.get("OUTPUT_DB_PORT", "5432")
+    DB_NAME = os.environ.get("OUTPUT_DB_NAME", "ldp")
+
+    username, password = _get_db_credentials()
+
+    if not DB_HOST or not DB_NAME or not username or not password:
+        logger.error(f"Missing environment variables or credentials for database URL")
+        return None
+
+    return f"postgresql+psycopg2://{username}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"

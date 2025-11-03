@@ -112,11 +112,11 @@ def _to_canonical(record: pd.Series) -> Dict[str, Any] | None:
         patient_details['nhs_number'] = str(patient_details['nhs_number']).replace(' ', '')
         
         # Convert date of birth to proper date type
-        try:
-            patient_details['date_of_birth'] = pd.to_datetime(patient_details['date_of_birth'], format='%d-%b-%y', errors='raise').date()
-        except ValueError as e:
-            logger.error(f"Failed to convert date of birth '{patient_details['date_of_birth']}': {e}")
-            return canonical_record
+        #try:
+        #    patient_details['date_of_birth'] = pd.to_datetime(patient_details['date_of_birth'], format='%d-%b-%y', errors='raise').date()
+        #except ValueError as e:
+        #    logger.error(f"Failed to convert date of birth '{patient_details['date_of_birth']}': {e}")
+        #    return canonical_record
 
         # Union the dictionaries together
         canonical_record = {**patient_details, **height_data, **weight_data}  

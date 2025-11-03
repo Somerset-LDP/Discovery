@@ -3,6 +3,7 @@
 AWS Lambda function for identifying and pseudonymising the patient cohort that will be used across all subsequent processing layers.
 
 ## Purpose
+This Lambda function serves as the entry point for the data processing pipeline. It supports two processing modes
 controlled by a feature flag:
 
 ### Mode SFT+GP Intersection (PROCESS_SFT_FILES=1)

@@ -3,10 +3,12 @@ import pandas as pd
 import json
 import os
 import io
+import tempfile
+import csv
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from aws.lambdas.emis_gprecord import handler as handler_module
-from aws.lambdas.emis_gprecord.handler import lambda_handler
+from aws.lambdas.emis_gprecord.handler import lambda_handler, _write_gp_records
 
 # Fixtures
 
@@ -862,3 +864,217 @@ def test_malformed_encryption_response_handling(sample_event, sample_context):
         
         # Should handle malformed response gracefully - either fail or continue without processing
         assert response['statusCode'] == 500
+
+
+# File Format Validation Tests - No Mocking of pandas.DataFrame.to_csv
+
+def test_actual_file_output_complete_validation():
+    """Test complete file output validation without mocking pandas.DataFrame.to_csv."""
+    # Sample EMIS header rows
+    header_rows = [
+        "Complete results are available,,,,,,",
+        ",,,,,,",
+        ""  # Third header row is empty in EMIS format
+    ]
+    
+    # Sample DataFrame with EMIS-compliant data
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890', '9876543210'],
+        'name': ['John Smith', 'Jane Doe'],
+        'dob': ['15-Jan-80', '22-Jun-75'],
+        'ethnicity': ['White', 'Asian'],
+        'postcode': ['TA1 1AA', 'BS1 2BB']
+    })
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Call the actual function without mocking to_csv
+        output_path = _write_gp_records(records, header_rows, tmp_dir)
+        
+        # Read back the actual file content
+        with open(output_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        lines = content.strip().split('\n')
+        
+        # Validate header preservation
+        assert lines[0] == "Complete results are available,,,,,,"
+        assert lines[1] == ",,,,,,"
+        assert lines[2] == ""
+        
+        # Validate CSV structure (headers + data)
+        assert lines[3] == "nhs_number,name,dob,ethnicity,postcode"
+        assert lines[4] == "1234567890,John Smith,15-Jan-80,White,TA1 1AA"
+        assert lines[5] == "9876543210,Jane Doe,22-Jun-75,Asian,BS1 2BB"
+        
+        # Validate total line count
+        assert len(lines) == 6
+
+
+def test_actual_file_output_empty_dataframe():
+    """Test file output with empty DataFrame - should still write headers."""
+    header_rows = [
+        "Complete results are available,,,,,,",
+        ",,,,,,",
+        ""
+    ]
+    
+    # Empty DataFrame but with proper column structure
+    records = pd.DataFrame(columns=['nhs_number', 'name', 'dob', 'ethnicity', 'postcode'])
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_path = _write_gp_records(records, header_rows, tmp_dir)
+        
+        with open(output_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        lines = content.strip().split('\n')
+        
+        # Should have header rows + column headers but no data rows
+        assert lines[0] == "Complete results are available,,,,,,"
+        assert lines[1] == ",,,,,,"  
+        assert lines[2] == ""
+        assert lines[3] == "nhs_number,name,dob,ethnicity,postcode"
+        assert len(lines) == 4
+
+
+def test_header_preservation_comprehensive():
+    """Test comprehensive header preservation scenarios."""
+    # Headers with various special characters and lengths
+    header_rows = [
+        "Complete results are available, with special chars: £$%,,,,",
+        "Second header with unicode: ñáéí,and,commas,in,cells,",
+        "Third header row is completely empty"
+    ]
+    
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890'],
+        'name': ['Test Patient']
+    })
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_path = _write_gp_records(records, header_rows, tmp_dir)
+        
+        with open(output_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        lines = content.split('\n')
+        
+        # Validate exact header preservation (byte-for-byte)
+        assert lines[0] == "Complete results are available, with special chars: £$%,,,,"
+        assert lines[1] == "Second header with unicode: ñáéí,and,commas,in,cells,"
+        assert lines[2] == "Third header row is completely empty"
+        
+        # Validate headers are in correct order
+        assert content.startswith("Complete results are available, with special chars:")
+        
+        # Validate UTF-8 encoding preserved special characters
+        assert "£$%" in lines[0]
+        assert "ñáéí" in lines[1]
+
+
+def test_csv_data_format_nhs_and_dates():
+    """Test NHS number and date format preservation in CSV output."""
+    header_rows = ["Header1", "Header2", "Header3"]
+    
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890', '9876543210', '5555555555'],
+        'name': ['Patient One', 'Patient Two', 'Patient Three'],
+        'dob': ['15-Jan-80', '22-Jun-75', '05-Dec-90'],
+        'registration_date': ['01-Mar-20', '15-Apr-21', '30-Nov-22']
+    })
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_path = _write_gp_records(records, header_rows, tmp_dir)
+        
+        with open(output_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            
+        # Parse CSV data starting after headers
+        data_lines = lines[4:]  # Skip 3 header + 1 column header row
+        
+        # Validate NHS numbers remain 10 digits without spaces
+        for line in data_lines:
+            if line.strip():  # Skip empty lines
+                nhs_number = line.split(',')[0]
+                assert len(nhs_number) == 10
+                assert nhs_number.isdigit()
+        
+        # Validate date formats remain dd-MMM-yy
+        assert "15-Jan-80" in lines[4]
+        assert "22-Jun-75" in lines[5] 
+        assert "05-Dec-90" in lines[6]
+        assert "01-Mar-20" in lines[4]
+
+
+def test_csv_data_special_characters():
+    """Test CSV data with special characters (commas, quotes, newlines)."""
+    header_rows = ["Header1", "Header2", "Header3"]
+    
+    # Data containing CSV special characters that need proper escaping
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890', '9876543210'],
+        'name': ['Smith, John Jr.', 'O\'Connor, Mary'],
+        'address': ['123 Main St, Apt 2', 'Address with "quotes" in it'],
+        'notes': ['Patient has multiple\nconditions', 'Normal patient']
+    })
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_path = _write_gp_records(records, header_rows, tmp_dir)
+        
+        with open(output_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Validate that pandas properly escapes special characters
+        assert '"Smith, John Jr."' in content  # Commas in data should be quoted
+        assert '"O\'Connor, Mary"' in content or 'O\'Connor, Mary' in content  # Apostrophes handled
+        assert '"Address with ""quotes"" in it"' in content  # Quotes should be escaped
+        assert 'multiple\nconditions' in content or '"Patient has multiple\nconditions"' in content  # Newlines handled
+        
+        # Validate we can parse it back as valid CSV
+        with open(output_path, 'r', encoding='utf-8') as f:
+            # Skip headers
+            for _ in range(3):
+                f.readline()
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            
+        assert len(rows) == 2
+        assert rows[0]['name'] == 'Smith, John Jr.'
+        assert rows[1]['name'] == 'O\'Connor, Mary'
+
+
+def test_file_output_column_order_preservation():
+    """Test that column order is preserved in CSV output."""
+    header_rows = ["Header1", "Header2", "Header3"]
+    
+    # Create DataFrame with specific column order (nhs_number should be first for EMIS compatibility)
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890', '9876543210'],
+        'name': ['John Smith', 'Jane Doe'], 
+        'dob': ['15-Jan-80', '22-Jun-75'],
+        'postcode': ['TA1 1AA', 'BS1 2BB'],
+        'ethnicity': ['White', 'Asian']
+    })
+    
+    # Ensure column order is as expected
+    expected_columns = ['nhs_number', 'name', 'dob', 'postcode', 'ethnicity']
+    records = records[expected_columns]  # Explicit column ordering
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_path = _write_gp_records(records, header_rows, tmp_dir)
+        
+        with open(output_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Check column headers are in correct order
+        column_header_line = lines[3].strip()  # After 3 EMIS headers
+        assert column_header_line == "nhs_number,name,dob,postcode,ethnicity"
+        
+        # Check first data row has values in correct positions
+        first_data_line = lines[4].strip()
+        values = first_data_line.split(',')
+        assert values[0] == '1234567890'  # nhs_number first
+        assert values[1] == 'John Smith'   # name second
+        assert values[2] == '15-Jan-80'    # dob third
+        assert values[3] == 'TA1 1AA'     # postcode fourth
+        assert values[4] == 'White'       # ethnicity fifth

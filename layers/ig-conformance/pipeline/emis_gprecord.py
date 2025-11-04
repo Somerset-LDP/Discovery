@@ -33,7 +33,7 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
         else:
             logger.error(f"Failed to encrypt NHS number for record at index {index}")
 
-    logger.info(f"Filtered {len(filtered_records)} records that are in cohort from an initial {len(records)} records")
+    logger.info(f"Retained {len(filtered_records)} records that are in cohort from an initial {len(records)} records")
     return pd.DataFrame(filtered_records)            
 
 def _encrypt_nhs_number(nhs_number: str, encrypt: Callable[[str, str], str | None]) -> str | None:

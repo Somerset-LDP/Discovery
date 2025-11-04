@@ -277,6 +277,12 @@ def _encrypt(field_name: str, value: str) -> str | None:
     """
     encrypted_value = None
 
+    skip_encryption = os.getenv("SKIP_ENCRYPTION")
+
+    if skip_encryption:
+        logger.info(f"Skipping encryption for field: {field_name}")
+        return value
+
     if not field_name or not value or str(value).lower() in ['nan', 'none', 'null', '']:
         logger.warning(f"Field name or value is None or empty, cannot encrypt")
         return None

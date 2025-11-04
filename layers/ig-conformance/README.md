@@ -37,8 +37,8 @@ For local development and testing -
 docker buildx build \
   --platform linux/amd64 \
   --provenance=false \
-  -t emis_gprecord:latest \
-  -f aws/lambdas/emis_gprecord/Dockerfile .
+  -t emis_gprecord_ig_conformance:latest \
+  -f Dockerfile .
 ```
 
 Smoke testing the image- 
@@ -57,6 +57,14 @@ docker buildx build \
   --secret id=ssl-certs,src=/etc/ssl/certs/ca-certificates.crt \
   --platform linux/amd64 \
   --provenance=false \
-  -t emis_gprecord:latest \
-  -f aws/lambdas/emis_gprecord/Dockerfile .
+  -t emis_gprecord_ig_conformance:latest \
+  -f Dockerfile .
 ```
+
+## Environment variables
+
+* `COHORT_STORE` - path to the cohort store
+* `INPUT_LOCATION` - path to input file (likely this will point to a path in the pseudonmisation layer that holds psedunymised GP records in EMIS format)
+* `OUTPUT_LOCATION` - path to the root output dir. The pipeline will write its output file under this dir.
+
+For testing the `SKIP_ENCRYPTION` variable can be set to avoid calling out to the Psuedonymisation service. This is not recommended for production

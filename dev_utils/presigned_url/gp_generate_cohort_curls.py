@@ -20,7 +20,7 @@ def generate_cohort_curls(
     curl_commands = []
 
     for gp_ods_code in gp_ods_codes:
-        file_name = f"cohort_{gp_ods_code}.csv"
+        file_name = f"Over65_{gp_ods_code}.csv"
         print(f"Generating presigned URL for: {file_name}")
 
         try:

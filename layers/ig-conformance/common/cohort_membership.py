@@ -34,15 +34,11 @@ def read_cohort_members(location: str) -> pd.Series:
         if df.empty:
             raise ValueError(f"No data found in cohort file")
         
-        if "nhs" not in df.columns:
-            available_columns = ", ".join(df.columns.tolist())
-            raise ValueError(
-                f"Required column 'nhs' not found. "
-                f"Available columns: {available_columns}"
-            )
-        
+        if df.shape[1] == 0:
+            raise ValueError(f"No columns found in cohort file")        
+          
         # Get nhs column and handle nulls/whitespace
-        nhs_numbers = df["nhs"]
+        nhs_numbers = df.iloc[:, 0]
         
         # Filter out null, NaN, empty strings, and whitespace-only values
         # Since nhs is now string type, pd.isna() handles <NA> values properly

@@ -27,7 +27,7 @@ def create_lambda_container_with_env(cohort_store_path, input_location_path, out
     Yields:
         running_container: Ready-to-use Lambda container
     """
-    container = DockerContainer("emis_gprecord:latest")
+    container = DockerContainer("emis_gprecord_ig_conformance:latest")
     container.with_exposed_ports(8080)
 
     # Map host files to container paths

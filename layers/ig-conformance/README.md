@@ -37,8 +37,8 @@ For local development and testing -
 docker buildx build \
   --platform linux/amd64 \
   --provenance=false \
-  -t emis_gprecord:latest \
-  -f aws/lambdas/emis_gprecord/Dockerfile .
+  -t emis_gprecord_ig_conformance:latest \
+  -f Dockerfile .
 ```
 
 Smoke testing the image- 
@@ -57,6 +57,6 @@ docker buildx build \
   --secret id=ssl-certs,src=/etc/ssl/certs/ca-certificates.crt \
   --platform linux/amd64 \
   --provenance=false \
-  -t emis_gprecord:latest \
-  -f aws/lambdas/emis_gprecord/Dockerfile .
+  -t emis_gprecord_ig_conformance:latest \
+  -f Dockerfile .
 ```

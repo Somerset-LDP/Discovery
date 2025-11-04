@@ -151,10 +151,8 @@ def _write_gp_records(records: pd.DataFrame, header_rows: List[str], location: s
 
 def _write_output(cohort_member_records, header_rows, output_location) -> str | None:
     # Write the filtered results to output file
-    output_file = None
-    if cohort_member_records:
-        output_file = _write_gp_records(cohort_member_records, header_rows, output_location)
-        logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
+    output_file = _write_gp_records(cohort_member_records, header_rows, output_location)
+    logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
 
     return output_file
 

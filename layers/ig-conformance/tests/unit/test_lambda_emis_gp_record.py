@@ -87,7 +87,7 @@ def test_missing_output_location_env_var(sample_event, sample_context):
 @patch.dict(os.environ, {
     'COHORT_STORE': 's3://test-bucket/cohort.csv',
     'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp/filtered_gp_records.csv'
+    'OUTPUT_LOCATION': '/tmp'
 })
 def test_valid_environment_variables(sample_event, sample_context, valid_gp_records_path, tmp_path):
     """Test handler starts processing with valid environment variables."""
@@ -102,12 +102,16 @@ def test_valid_environment_variables(sample_event, sample_context, valid_gp_reco
         mock_read_cohort.return_value = pd.Series(['1234567890', '9876543210'])
         
         # Mock GP records file content
-        gp_content = "nhs_number,name,dob\n1234567890,John Smith,1980-01-15\n2345678901,Jane Doe,1975-06-22\n"
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob,ethnicity,postcode
+1234567890,John Smith,1980-01-15,White,TA1 1AA
+2345678901,Jane Doe,1975-06-22,Asian,BS1 2BB"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
         # Mock pipeline
-        mock_pipeline.return_value = []
+        mock_pipeline.return_value = pd.DataFrame()
         
         response = lambda_handler(sample_event, sample_context)
         assert response['statusCode'] == 200
@@ -133,7 +137,9 @@ def test_lambda_handler_with_valid_gp_records(sample_event, sample_context, vali
         mock_read_cohort.return_value = pd.Series(['1234567890', '9876543210'])
         
         # Mock GP records file content
-        gp_content = """nhs_number,name
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name
 1234567890,Alice Johnson
 9876543210,Bob Smith
 5555555555,Non Member
@@ -167,8 +173,10 @@ def test_lambda_handler_with_empty_gp_records(sample_event, sample_context, empt
         # Setup mocks to simulate empty GP records
         mock_read_cohort.return_value = pd.Series(['1234567890'])
         
-        # Mock empty GP records file (just headers)
-        gp_content = "nhs_number,name"
+        # Mock empty GP records file in EMIS format (3 header rows + no data)
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob,ethnicity,postcode"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
@@ -217,8 +225,10 @@ def test_lambda_handler_with_malformed_gp_records(sample_event, sample_context, 
         # Setup mocks to simulate malformed but readable CSV
         mock_read_cohort.return_value = pd.Series(['1234567890'])
         
-        # Mock malformed GP records file content
-        gp_content = """invalid,format,here
+        # Mock malformed GP records file content in EMIS format
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+invalid,format,here
 data,here,not_nhs_number
 malformed_data,Another Name,"""
         mock_gp_file = io.StringIO(gp_content)
@@ -252,14 +262,16 @@ def test_pipeline_filters_cohort_members(sample_event, sample_context, valid_gp_
         # Mock reading cohort and GP records
         mock_read_cohort.return_value = pd.Series(['1234567890', '9876543210'])
         
-        # Mock GP records file content
-        gp_content = """nhs_number,name,dob,ethnicity,postcode
+        # Mock GP records file content in EMIS format
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob,ethnicity,postcode
 1234567890,Alice Johnson,1985-03-12,White,TA1 1AA"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
         # Mock pipeline returning filtered records
-        expected_filtered = [{'nhs_number': '1234567890', 'name': 'Alice Johnson', 'dob': '1985-03-12', 'ethnicity': 'White', 'postcode': 'TA1 1AA'}]
+        expected_filtered = pd.DataFrame([{'nhs_number': '1234567890', 'name': 'Alice Johnson', 'dob': '1985-03-12', 'ethnicity': 'White', 'postcode': 'TA1 1AA'}])
         mock_pipeline.return_value = expected_filtered
         
         response = lambda_handler(sample_event, sample_context)
@@ -288,13 +300,15 @@ def test_pipeline_no_cohort_matches(sample_event, sample_context, valid_gp_recor
         
         mock_read_cohort.return_value = pd.Series(['1234567890'])
         
-        # Mock GP records file content
-        gp_content = """nhs_number,name
-5555555555,Non Member"""
+        # Mock GP records file content in EMIS format
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob,ethnicity,postcode
+5555555555,Non Member,1990-01-01,Other,XX1 1XX"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
-        mock_pipeline.return_value = []  # No matches
+        mock_pipeline.return_value = pd.DataFrame()  # No matches
         
         response = lambda_handler(sample_event, sample_context)
         
@@ -339,15 +353,17 @@ def test_pipeline_error_handling(sample_event, sample_context):
          patch.object(handler_module, 'run') as mock_pipeline:
         
         mock_read_cohort.return_value = pd.Series(['1234567890'])
-        
-        # Mock GP records file content
-        gp_content = """nhs_number
-1234567890"""
+
+        # Mock GP records file content in EMIS format
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob,ethnicity,postcode
+1234567890,Test Patient,1980-01-01,White,TA1 1AA"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
-        
+
         mock_pipeline.side_effect = Exception("Pipeline processing error")
-        
+
         response = lambda_handler(sample_event, sample_context)
         
         assert response['statusCode'] == 500
@@ -368,16 +384,18 @@ def test_file_write_error_handling(sample_event, sample_context):
          patch('pandas.DataFrame.to_csv') as mock_to_csv:
         
         mock_read_cohort.return_value = pd.Series(['1234567890'])
-        
-        # Mock GP records file content
-        gp_content = """nhs_number
-1234567890"""
+
+        # Mock GP records file content in EMIS format
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob,ethnicity,postcode
+1234567890,Test Patient,1980-01-01,White,TA1 1AA"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
-        
-        mock_pipeline.return_value = [{'nhs_number': '1234567890'}]
+
+        mock_pipeline.return_value = pd.DataFrame([{'nhs_number': '1234567890', 'name': 'Test Patient'}])
         mock_to_csv.side_effect = OSError("Cannot write output file")
-        
+
         response = lambda_handler(sample_event, sample_context)
         
         assert response['statusCode'] == 500
@@ -404,7 +422,9 @@ def test_lambda_handler_with_missing_nhs_column(sample_event, sample_context, mi
         mock_read_cohort.return_value = pd.Series(['1234567890'])
         
         # Mock GP records file content without NHS column
-        gp_content = """name,dob,ethnicity,postcode
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+name,dob,ethnicity,postcode
 John Smith,1980-01-15,White,TA1 1AA
 Jane Doe,1975-06-22,Asian,BS1 2BB"""
         mock_gp_file = io.StringIO(gp_content)
@@ -447,7 +467,9 @@ def test_lambda_handler_with_missing_nhs_numbers(sample_event, sample_context, m
         mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content with missing NHS numbers (empty cells should be skipped)
-        gp_content = """nhs_number,name,dob,ethnicity,postcode
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob,ethnicity,postcode
 ,John Smith,1980-01-15,White,TA1 1AA
 2345678901,Jane Doe,1975-06-22,Asian,BS1 2BB
 ,Bob Johnson,1990-03-10,Black,BA1 3CC"""
@@ -513,17 +535,19 @@ def test_end_to_end_processing_success(sample_event, sample_context, tmp_path):
         cohort_data = pd.Series(['1234567890', '9876543210'])
         
         # Mock GP records file content
-        gp_content = """nhs_number,name
+        gp_content = """Complete results are available,,,,,,
+,,,,,,
+nhs_number,name
 1234567890,Alice Johnson
 9876543210,Bob Smith
 5555555555,Non Member"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
-        filtered_records = [
+        filtered_records = pd.DataFrame([
             {'nhs_number': '1234567890', 'name': 'Alice Johnson'},
             {'nhs_number': '9876543210', 'name': 'Bob Smith'}
-        ]  # First two are cohort members
+        ])  # First two are cohort members
         
         mock_read_cohort.return_value = cohort_data
         mock_pipeline.return_value = filtered_records
@@ -571,7 +595,7 @@ def test_output_file_creation_integration(sample_event, sample_context, tmp_path
         mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content
-        gp_file_content = io.StringIO("nhs_number,name,dob\n1234567890,Alice Johnson,1985-03-12\n")
+        gp_file_content = io.StringIO("Complete results are available,,,,,,\n,,,,,,\nnhs_number,name,dob\n1234567890,Alice Johnson,1985-03-12\n")
         mock_fsspec_open.return_value.__enter__.return_value = gp_file_content
         
         mock_read_cohort.return_value = cohort_data
@@ -604,11 +628,11 @@ def test_end_to_end_no_cohort_members(sample_event, sample_context):
         cohort_data = pd.Series(['1234567890'])
         
         # Mock GP records file content - no matching cohort members
-        gp_file_content = io.StringIO("nhs_number,name\n5555555555,Non Member\n")
+        gp_file_content = io.StringIO("Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n5555555555,Non Member\n")
         mock_fsspec_open.return_value.__enter__.return_value = gp_file_content
         
         mock_read_cohort.return_value = cohort_data
-        mock_pipeline.return_value = []  # No cohort members
+        mock_pipeline.return_value = pd.DataFrame()  # No cohort members
         
         response = lambda_handler(sample_event, sample_context)
         
@@ -633,7 +657,7 @@ def test_cohort_read_error_handling(sample_event, sample_context):
          patch.object(handler_module, 'read_cohort_members') as mock_read_cohort:
         
         # Mock GP records file content
-        gp_file_content = io.StringIO("nhs_number,name\n1234567890,Test Patient\n")
+        gp_file_content = io.StringIO("Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n1234567890,Test Patient\n")
         mock_fsspec_open.return_value.__enter__.return_value = gp_file_content
         
         # Setup cohort reading to raise an exception
@@ -688,7 +712,9 @@ def test_cohort_membership_lookup_logic(sample_event, sample_context):
         mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content with mixed cohort membership
-        gp_file_content = io.StringIO("""nhs_number,name,dob
+        gp_file_content = io.StringIO("""Complete results are available,,,,,,
+,,,,,,
+nhs_number,name,dob
 1111111111,Alice Johnson,1985-03-12
 4444444444,Bob Smith,1990-01-01
 2222222222,Carol White,1975-06-30
@@ -721,15 +747,15 @@ def test_encryption_service_response_parsing(sample_event, sample_context):
          patch('pandas.DataFrame.to_csv'), \
          patch.object(handler_module, 'delete_file'), \
          patch('boto3.client') as mock_boto_client:
-        
+
         mock_read_cohort.return_value = pd.Series(['encrypted_nhs_123'])
-        
+
         # Mock boto3 Lambda client with complex response structure
         mock_lambda_client = MagicMock()
         mock_response = MagicMock()
         mock_response.statusCode = 200
         mock_payload = MagicMock()
-        
+
         # Mock response with properly structured encryption service response
         encryption_response = {
             'field_name': 'nhs_number',
@@ -740,9 +766,9 @@ def test_encryption_service_response_parsing(sample_event, sample_context):
         mock_response.__getitem__ = MagicMock(return_value=mock_payload)
         mock_lambda_client.invoke.return_value = mock_response
         mock_boto_client.return_value = mock_lambda_client
-        
+
         # Mock GP records file content
-        gp_content = "nhs_number,name\n1234567890,Alice Johnson\n"
+        gp_content = "Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n1234567890,Alice Johnson\n"
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
@@ -767,9 +793,9 @@ def test_encryption_service_timeout_handling(sample_event, sample_context):
          patch('pandas.DataFrame.to_csv'), \
          patch.object(handler_module, 'delete_file'), \
          patch('boto3.client') as mock_boto_client:
-        
+
         mock_read_cohort.return_value = pd.Series(['1234567890'])
-        
+
         # Mock boto3 Lambda client to simulate timeout - this will cause _encrypt to return None
         mock_lambda_client = MagicMock()
         from botocore.exceptions import ReadTimeoutError
@@ -778,9 +804,9 @@ def test_encryption_service_timeout_handling(sample_event, sample_context):
             operation_name='Invoke'
         )
         mock_boto_client.return_value = mock_lambda_client
-        
+
         # Mock GP records file content
-        gp_content = "nhs_number,name\n1234567890,Alice Johnson\n"
+        gp_content = "Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n1234567890,Alice Johnson\n"
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
@@ -828,7 +854,7 @@ def test_malformed_encryption_response_handling(sample_event, sample_context):
         mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content
-        gp_content = "nhs_number,name\n1234567890,Alice Johnson\n"
+        gp_content = "Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n1234567890,Alice Johnson\n"
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         

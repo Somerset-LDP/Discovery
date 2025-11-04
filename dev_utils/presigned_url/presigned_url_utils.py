@@ -37,9 +37,9 @@ def generate_curl_to_upload(kms_key: str, file_path: str, file_name: str, expira
     presigned_url = generate_s3_presigned_url(bucket, key, kms_key, expiration)
 
     curl_command = (
-        f'curl.exe -X PUT "{presigned_url}" '
-        f'-H "X-Amz-Server-Side-Encryption: aws:kms" '
-        f'-H "X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id: {kms_key}" '
+        f'curl.exe -X PUT "{presigned_url}" ^\n'
+        f'-H "X-Amz-Server-Side-Encryption: aws:kms" ^\n'
+        f'-H "X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id: {kms_key}" ^\n'
         f'--data-binary "<local_file_path>"'
     )
 

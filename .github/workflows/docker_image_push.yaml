@@ -1,7 +1,16 @@
-name: Build and Push ig-conformance Image to ECR
+name: Build and Push Lambda Image to ECR
 
 on:
   workflow_dispatch:
+    inputs:
+      lambda:
+        description: "Select Lambda to build"
+        required: true
+        type: choice
+        options:
+          - ig-conformance
+          - canonical
+          - pseudonymised
 
 jobs:
   deploy:
@@ -16,16 +25,16 @@ jobs:
         run: |
           echo "PWD: $(pwd)"
           ls -la
-          ls -la layers/ig-conformance/
+          ls -la layers/${{ github.event.inputs.lambda }}/
 
-      - name: Build ig-conformance image
+      - name: Build ${{ github.event.inputs.lambda }} image
         uses: delivops/ecr-build-action@v0.0.10
         with:
-          path: ./layers/ig-conformance/
+          path: ./layers/${{ github.event.inputs.lambda }}/
           image_name: "somerset-647582858282-dev-account-ecr"
           tag: "latest,sha-${{ github.sha }}"
           build_args: "ENV=dev,VERSION=${{ github.sha }}"
-          dockerfile_path: ./layers/ig-conformance/Dockerfile
+          dockerfile_path: ./layers/${{ github.event.inputs.lambda }}/Dockerfile
           aws_account_id: "647582858282"
           aws_region: "eu-west-2"
           aws_role: "GithubRunnerRole"

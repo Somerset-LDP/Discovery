@@ -7,7 +7,7 @@ from pipeline.emis_gprecord import run, USER_TYPE_COL
 # Expected single-level columns based on current implementation
 expected_columns = [
     'NHS Number', 'Given Name', 'Family Name', 'Date of Birth', 'Postcode', 
-    'Number and Street', 'Ethnic Origin', 'Gender',
+    'Number and Street', 'Gender',
     'Value', 'Unit of Measure', 'Date',  # Height measurements
     'Value.1', 'Unit of Measure.1', 'Date.1',  # Weight measurements  
     'Consultation ID', 'Date.2', 'Time', 'Type of Consultation', "User Details' User Type"
@@ -40,7 +40,6 @@ def test_valid_complete_records_processing():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '175',
         'cm',
@@ -101,7 +100,6 @@ def test_mixed_valid_and_invalid_records(mock_logger):
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '175',
         'cm',
@@ -118,7 +116,7 @@ def test_mixed_valid_and_invalid_records(mock_logger):
     
     # Add invalid record (missing patient details)
     df.loc[1] = [
-        '', '', '', '', '', '', '', '',  # Empty patient details
+        '', '', '', '', '', '', '',  # Empty patient details
         '180', 'cm', '27-Jun-25',
         '80', 'kg', '27-Jun-25',
         '12346', '15-May-25', '09:30', 'Face to face', 'GP'
@@ -141,7 +139,7 @@ def test_patient_details_validation_failure():
     # Record with missing NHS Number
     df.loc[0] = [
         '', 'John', 'Doe', '01-Jan-50', 'AB1 2CD',
-        '123 Test Street', 'British', 'Male',
+        '123 Test Street', 'Male',
         '175', 'cm', '27-Jun-25',
         '75', 'kg', '27-Jun-25',
         '12345', '15-May-25', '09:30', 'Face to face', 'GP'
@@ -164,7 +162,6 @@ def test_height_measurement_validation_wrong_units():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '5.8',
         'ft',
@@ -196,7 +193,6 @@ def test_height_measurement_validation_non_numeric():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         'tall',
         'cm',
@@ -228,7 +224,6 @@ def test_weight_measurement_validation_wrong_units():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '175',
         'cm',
@@ -260,7 +255,6 @@ def test_weight_measurement_validation_missing_value():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '175',
         'cm',
@@ -293,7 +287,6 @@ def test_date_format_validation_invalid_format():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '175',
         'cm',
@@ -325,7 +318,6 @@ def test_date_format_validation_valid_format():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '175',
         'cm',
@@ -361,7 +353,6 @@ def test_all_records_invalid_scenario():
         '',
         '',
         '',
-        '',
         '175',
         'cm',
         '27-Jun-25',
@@ -378,7 +369,7 @@ def test_all_records_invalid_scenario():
     # Record 2: Wrong height units
     df.loc[1] = [
         '222 333 4444', 'Jane', 'Smith', '01-Jan-60', 'CD2 3EF',
-        '456 Main St', 'British', 'Female',
+        '456 Main St', 'Female',
         '5.6', 'ft', '27-Jun-25',  # Wrong units
         '65', 'kg', '27-Jun-25',
         '12346', '15-May-25', '09:30', 'Face to face', 'GP'
@@ -387,7 +378,7 @@ def test_all_records_invalid_scenario():
     # Record 3: Non-numeric weight
     df.loc[2] = [
         '333 444 5555', 'Bob', 'Johnson', '01-Jan-70', 'EF3 4GH',
-        '789 Oak Ave', 'British', 'Male',
+        '789 Oak Ave', 'Male',
         '180', 'cm', '27-Jun-25',
         'heavy', 'kg', '27-Jun-25',  # Non-numeric
         '12347', '15-May-25', '09:30', 'Face to face', 'GP'
@@ -416,7 +407,6 @@ def test_output_dataframe_structure():
         '01-Jan-50',
         'AB1 2CD',
         '123 Test Street',
-        'British',
         'Male',
         '175',
         'cm',

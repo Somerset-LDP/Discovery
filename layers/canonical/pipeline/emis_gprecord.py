@@ -9,19 +9,18 @@ FAMILY_NAME_COL = 2
 DATE_OF_BIRTH_COL = 3
 POSTCODE_COL = 4
 NUMBER_AND_STREET_COL = 5
-ETHNIC_ORIGIN_COL = 6
-GENDER_COL = 7
-HEIGHT_VALUE_COL = 8
-HEIGHT_UNIT_COL = 9
-HEIGHT_DATE_COL = 10
-WEIGHT_VALUE_COL = 11
-WEIGHT_UNIT_COL = 12
-WEIGHT_DATE_COL = 13
-CONSULTATION_ID_COL = 14
-CONSULTATION_DATE_COL = 15
-CONSULTATION_TIME_COL = 16
-CONSULTATION_TYPE_COL = 17
-USER_TYPE_COL = 18
+GENDER_COL = 6
+HEIGHT_VALUE_COL = 7
+HEIGHT_UNIT_COL = 8
+HEIGHT_DATE_COL = 9
+WEIGHT_VALUE_COL = 10
+WEIGHT_UNIT_COL = 11
+WEIGHT_DATE_COL = 12
+CONSULTATION_ID_COL = 13
+CONSULTATION_DATE_COL = 14
+CONSULTATION_TIME_COL = 15
+CONSULTATION_TYPE_COL = 16
+USER_TYPE_COL = 17
 
 # we need our lambda to convert the rows into a  dict
 def run(records: pd.DataFrame) -> pd.DataFrame:
@@ -124,6 +123,7 @@ def _to_canonical(record: pd.Series) -> Dict[str, Any] | None:
     return canonical_record
 
 # TODO - the function has a hard-coded enum for sex. This will be updated in a future iteration to use a FHIR ValueSet
+# Note that much of a Patient's data is pseudonymised therefore validation is limited to making sure mandatory values are present
 def _is_patient_details_valid(patient_details: Dict[str, Any]) -> bool:
     logger = logging.getLogger(__name__)
     
@@ -132,24 +132,6 @@ def _is_patient_details_valid(patient_details: Dict[str, Any]) -> bool:
         if pd.isna(value) or str(value).strip() == "":
             logger.warning(f"Missing or empty value in Patient Details for field '{key}': '{value}'")
             return False
-    
-    # Validate NHS Number format (10 digits)
-    nhs_number = str(patient_details['nhs_number']).strip().replace(' ', '')
-    if not nhs_number.isdigit() or len(nhs_number) != 10:
-        logger.warning(f"Invalid NHS Number format. Expected 10 digits, got: '{nhs_number}'")
-        return False
-    
-    # Store the normalized NHS number (without spaces)
-    patient_details['nhs_number'] = nhs_number
-    
-    # Validate Date of Birth format
-    date_of_birth = patient_details['date_of_birth']
-    try:
-        pd.to_datetime(date_of_birth, format='%d-%b-%y', errors='raise')
-        logger.debug(f"Valid date of birth found: {date_of_birth}")
-    except ValueError:
-        logger.warning(f"Invalid date of birth format. Expected 'dd-MMM-yy', got: '{date_of_birth}'")
-        return False
     
     # Validate Sex/Gender values
     sex = str(patient_details['sex']).strip()

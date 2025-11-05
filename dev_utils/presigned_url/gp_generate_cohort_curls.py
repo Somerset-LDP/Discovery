@@ -80,7 +80,7 @@ def main():
 
     print(f"Successfully generated {len(curl_commands)} curl commands")
     for i, cmd in enumerate(curl_commands, 1):
-        print(f"\n{i}. {cmd}")
+        print(f"\n{cmd}")
 
     return curl_commands
 

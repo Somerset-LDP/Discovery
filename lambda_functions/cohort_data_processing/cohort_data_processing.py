@@ -102,7 +102,13 @@ def load_and_clean_nhs_csv(
     if not content.strip():
         logger.error(f'{filetype} file s3://{bucket}/{key} is empty. Aborting lambda execution.')
         raise ValueError(f'{filetype} file s3://{bucket}/{key} is empty.')
-    df = pd.read_csv(StringIO(content.decode(ENCODING)), header=None)
+
+    df = pd.read_csv(
+        StringIO(content.decode(ENCODING)),
+        skiprows=13,  # skip first 13 rows (metadata)
+        header=0  # row 14 becomes header (0-indexed after skiprows)
+    )
+
     if df.shape[1] > 1:
         df = df.iloc[:, [0]]
     df.columns = [NHS_NUMBER_COLUMN]

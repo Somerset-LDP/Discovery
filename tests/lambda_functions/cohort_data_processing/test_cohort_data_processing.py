@@ -136,7 +136,8 @@ def test_clean_and_validate_nhs_df(input_data, expected_nhs):
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_s3_object_content")
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.validate_checksum")
 def test_load_and_clean_nhs_csv(mock_validate_checksum, mock_get_s3_object_content):
-    sft_csv = "943 476 5919\n9434765910\n 8314495581 \nabcdefghij\n943 476 5919\n"
+    metadata_lines = "\n".join([f"Metadata line {i}" for i in range(1, 14)])
+    sft_csv = f"{metadata_lines}\nNHS Number\n943 476 5919\n9434765910\n 8314495581 \nabcdefghij\n943 476 5919\n"
     sft_bytes = sft_csv.encode("utf-8")
     checksum_bytes = b"fakechecksum sft.csv"
     mock_get_s3_object_content.side_effect = [sft_bytes, checksum_bytes]
@@ -148,7 +149,8 @@ def test_load_and_clean_nhs_csv(mock_validate_checksum, mock_get_s3_object_conte
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_s3_object_content")
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.validate_checksum")
 def test_load_and_clean_nhs_csv_extra_columns(mock_validate_checksum, mock_get_s3_object_content):
-    sft_csv = "9434765919,extra\n8132262247,column\n"
+    metadata_lines = "\n".join([f"Metadata line {i}" for i in range(1, 14)])
+    sft_csv = f"{metadata_lines}\nNHS Number,Extra Column\n9434765919,extra\n8132262247,column\n"
     sft_bytes = sft_csv.encode("utf-8")
     checksum_bytes = b"fakechecksum"
     mock_get_s3_object_content.side_effect = [sft_bytes, checksum_bytes]
@@ -191,7 +193,8 @@ def test_load_and_clean_nhs_csv_empty_file(mock_validate_checksum, mock_get_s3_o
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.get_s3_object_content")
 @patch("lambda_functions.cohort_data_processing.cohort_data_processing.validate_checksum")
 def test_load_and_clean_nhs_csv_removes_duplicates(mock_validate_checksum, mock_get_s3_object_content):
-    sft_csv = "9434765919\n9434765919\n9434765919\n"
+    metadata_lines = "\n".join([f"Metadata line {i}" for i in range(1, 14)])
+    sft_csv = f"{metadata_lines}\nNHS Number\n9434765919\n9434765919\n9434765919\n"
     sft_bytes = sft_csv.encode("utf-8")
     checksum_bytes = b"fakechecksum"
     mock_get_s3_object_content.side_effect = [sft_bytes, checksum_bytes]

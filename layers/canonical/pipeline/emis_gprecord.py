@@ -132,14 +132,7 @@ def _is_patient_details_valid(patient_details: Dict[str, Any]) -> bool:
         if pd.isna(value) or str(value).strip() == "":
             logger.warning(f"Missing or empty value in Patient Details for field '{key}': '{value}'")
             return False
-    
-    # Validate Sex/Gender values
-    sex = str(patient_details['sex']).strip()
-    valid_sex_values = ['Male', 'Female', 'Indeterminate']
-    if sex not in valid_sex_values:
-        logger.warning(f"Invalid sex value. Expected one of {valid_sex_values}, got: '{sex}'")
-        return False
-    
+        
     logger.debug("All patient details validation checks passed")
     return True
 

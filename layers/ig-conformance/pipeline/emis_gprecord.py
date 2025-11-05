@@ -22,6 +22,8 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
             logger.warning(f"Record at index {index} has no NHS number: {record}")
             continue
 
+        # the cohort store is built from NHS numbers that do not contain spaces
+        nhs_number = str(nhs_number).replace(' ', '').strip()
         encrypted_nhs = _encrypt_nhs_number(nhs_number, encrypt)
 
         if encrypted_nhs:

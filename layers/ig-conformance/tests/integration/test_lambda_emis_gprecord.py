@@ -27,7 +27,7 @@ def create_lambda_container_with_env(cohort_store_path, input_location_path, out
     Yields:
         running_container: Ready-to-use Lambda container
     """
-    container = DockerContainer("emis_gprecord:latest")
+    container = DockerContainer("emis_gprecord_ig_conformance:latest")
     container.with_exposed_ports(8080)
 
     # Map host files to container paths
@@ -38,6 +38,7 @@ def create_lambda_container_with_env(cohort_store_path, input_location_path, out
     container.with_env("COHORT_STORE", "file:///cohort_store.csv")
     container.with_env("INPUT_LOCATION", "file:///input.csv")
     container.with_env("OUTPUT_LOCATION", "file:///output")
+    container.with_env("SKIP_ENCRYPTION", "true")
 
     container.waiting_for(HttpWaitStrategy(8080, "/2015-03-31/functions/function/invocations").for_status_code_matching(lambda status_code: 200 <= status_code < 600))
 
@@ -61,9 +62,8 @@ def test_files():
     test_files = {
         "valid_cohort": str(fixtures_path / "cohort_data" / "valid_cohort.csv"),
         "empty_cohort": str(fixtures_path / "cohort_data" / "empty_file.csv"),
-        "missing_nhs_cohort": str(fixtures_path / "cohort_data" / "missing_nhs_column.csv"),
-        "valid_gp_records": str(fixtures_path / "gp_data" / "valid_gp_records.csv"),
-        "empty_gp_records": str(fixtures_path / "gp_data" / "empty_gp_records.csv"),
+        "valid_gp_records": str(fixtures_path / "gp_data" / "emis_three_patients.csv"),
+        "empty_gp_records": str(fixtures_path / "gp_data" / "emis_zero_patients.csv"),
     }
     
     yield test_files
@@ -136,12 +136,12 @@ def test_successful_processing_with_valid_data(test_files):
             assert _file_exists_in_container(container, "/input.csv"), "Input file should exist before processing"
             result = invoke_lambda(container)
 
-            #print("=== FULL RESPONSE ===")
-            #print(json.dumps(result, indent=2))   
+            print("=== FULL RESPONSE ===")
+            print(json.dumps(result, indent=2))
 
-            #logs = container.get_logs()
-            #print("=== CONTAINER LOGS ===")
-            #print(logs)             
+            logs = container.get_logs()
+            print("=== CONTAINER LOGS ===")
+            print(logs)             
 
             assert result["statusCode"] == 200
 
@@ -149,8 +149,8 @@ def test_successful_processing_with_valid_data(test_files):
             assert "records_processed" in response_body
             assert "records_retained" in response_body
             assert "output_file" in response_body
-            assert response_body["records_processed"] == 5, f"Expected 5 records processed, got {response_body['records_processed']}"
-            assert response_body["records_retained"] == 3, f"Expected 3 records retained, got {response_body['records_retained']}"
+            assert response_body["records_processed"] == 3, f"Expected 3 records processed, got {response_body['records_processed']}"
+            assert response_body["records_retained"] == 2, f"Expected 2 records retained, got {response_body['records_retained']}"
             assert not _file_exists_in_container(container, "/input.csv"), "Input file should be deleted after processing"
 
 def test_successful_processing_with_empty_filtered_results(test_files):

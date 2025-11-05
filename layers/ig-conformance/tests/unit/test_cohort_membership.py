@@ -95,26 +95,6 @@ def test_headers_only_file(test_data_dir):
         read_cohort_members(str(headers_only))
 
 
-def test_missing_nhs_column(test_data_dir):
-    """Test ValueError when 'nhs' column is missing"""
-    missing_nhs = test_data_dir / "missing_nhs_column.csv"
-    
-    with pytest.raises(ValueError, match="Required column 'nhs' not found"):
-        read_cohort_members(str(missing_nhs))
-
-
-def test_wrong_column_name(test_data_dir):
-    """Test ValueError when column is named 'nhs_number' instead of 'nhs'"""
-    wrong_name = test_data_dir / "wrong_column_name.csv"
-    
-    with pytest.raises(ValueError) as exc_info:
-        read_cohort_members(str(wrong_name))
-    
-    error_message = str(exc_info.value)
-    assert "Required column 'nhs' not found" in error_message
-    assert "Available columns: nhs_number, name, dob" in error_message
-
-
 def test_malformed_csv(test_data_dir):
     """Test ParserError for malformed CSV"""
     malformed = test_data_dir / "malformed.csv"

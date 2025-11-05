@@ -78,10 +78,14 @@ def test_valid_input(postgres_db, docker_network):
             assert result == 0, f"Expected 0 records in canonical.patient, got {result}"
 
             result = invoke_lambda(container)
-            
-            # Debug output
-            print(f"Lambda response: {result}")
 
+            #print("=== FULL RESPONSE ===")
+            #print(json.dumps(result, indent=2))
+
+            #logs = container.get_logs()
+            #print("=== CONTAINER LOGS ===")
+            #print(logs)               
+            
             assert result["statusCode"] == 200
             
             response_body = json.loads(result["body"])

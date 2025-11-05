@@ -136,12 +136,12 @@ def test_successful_processing_with_valid_data(test_files):
             assert _file_exists_in_container(container, "/input.csv"), "Input file should exist before processing"
             result = invoke_lambda(container)
 
-            print("=== FULL RESPONSE ===")
-            print(json.dumps(result, indent=2))
+            #print("=== FULL RESPONSE ===")
+            #print(json.dumps(result, indent=2))
 
-            logs = container.get_logs()
-            print("=== CONTAINER LOGS ===")
-            print(logs)             
+            #logs = container.get_logs()
+            #print("=== CONTAINER LOGS ===")
+            #print(logs)             
 
             assert result["statusCode"] == 200
 

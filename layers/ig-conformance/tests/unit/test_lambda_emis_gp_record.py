@@ -59,6 +59,22 @@ def missing_nhs_numbers_path():
     """Path to GP records with missing NHS numbers."""
     return Path(__file__).parent.parent / 'fixtures' / 'gp_data' / 'missing_nhs_numbers.csv'
 
+@pytest.fixture(autouse=True)
+def valid_env_vars():
+    """Automatically provide valid environment variables for tests that need them.
+    
+    This fixture uses autouse=True to automatically apply to all tests in this module.
+    Tests that need different environment variables (like missing env var tests) 
+    can override these by using patch.dict with clear=True or partial configs.
+    """
+    with patch.dict(os.environ, {
+        'COHORT_STORE': 's3://test-bucket/cohort.csv',
+        'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
+        'OUTPUT_LOCATION': '/tmp',
+        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-pseudonymisation-lambda'
+    }):
+        yield
+
 
 # Environment Variable Tests
 
@@ -86,11 +102,17 @@ def test_missing_output_location_env_var(sample_event, sample_context):
         assert response['statusCode'] == 400
         assert 'Missing one or more of the required environment variables' in response['body']
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
+def test_missing_pseudonymisation_lambda_function_name_env_var(sample_event, sample_context):
+    """Test handler fails when PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is missing."""
+    with patch.dict(os.environ, {
+        'COHORT_STORE': 's3://bucket/cohort.csv',
+        'INPUT_LOCATION': 's3://bucket/gp_records.csv',
+        'OUTPUT_LOCATION': '/tmp'
+    }, clear=True):
+        response = lambda_handler(sample_event, sample_context)
+        assert response['statusCode'] == 400
+        assert 'Missing one or more of the required environment variables' in response['body']
+
 def test_valid_environment_variables(sample_event, sample_context, valid_gp_records_path, tmp_path):
     """Test handler starts processing with valid environment variables."""
     
@@ -122,11 +144,6 @@ nhs_number,name,dob,ethnicity,postcode
 
 # File I/O Integration Tests
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_lambda_handler_with_valid_gp_records(sample_event, sample_context, valid_gp_records_path, tmp_path):
     """Test lambda handler reading valid GP records CSV file."""
     
@@ -159,11 +176,6 @@ nhs_number,name
         assert body_data['records_processed'] == 5
         # Should process records and filter based on cohort membership
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/empty_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_lambda_handler_with_empty_gp_records(sample_event, sample_context, empty_gp_records_path):
     """Test lambda handler reading empty GP records file."""
     
@@ -190,11 +202,6 @@ nhs_number,name,dob,ethnicity,postcode"""
         body_data = json.loads(response['body'])
         assert body_data['records_processed'] == 0
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/nonexistent.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_lambda_handler_with_nonexistent_gp_file(sample_event, sample_context):
     """Test lambda handler with non-existent GP records file."""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
@@ -211,11 +218,6 @@ def test_lambda_handler_with_nonexistent_gp_file(sample_event, sample_context):
         response_body = json.loads(response['body'])
         assert 'No such file or directory' in response_body['message']
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/malformed.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_lambda_handler_with_malformed_gp_records(sample_event, sample_context, malformed_gp_records_path):
     """Test lambda handler reading malformed CSV file."""
     
@@ -247,11 +249,6 @@ malformed_data,Another Name,"""
 
 # Pipeline Integration Tests
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_pipeline_filters_cohort_members(sample_event, sample_context, valid_gp_records_path, tmp_path):
     """Test pipeline correctly filters cohort members."""
     
@@ -286,11 +283,6 @@ nhs_number,name,dob,ethnicity,postcode
         # Verify pipeline was called with converted data
         mock_pipeline.assert_called_once()
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_pipeline_no_cohort_matches(sample_event, sample_context, valid_gp_records_path):
     """Test pipeline when no records match cohort."""
     
@@ -323,11 +315,6 @@ nhs_number,name,dob,ethnicity,postcode
 
 # Error Handling Tests
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_file_read_error_handling(sample_event, sample_context):
     """Test handler handles file reading errors gracefully."""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
@@ -342,11 +329,6 @@ def test_file_read_error_handling(sample_event, sample_context):
         response_body = json.loads(response['body'])
         assert 'Input file not found' in response_body['message']
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_pipeline_error_handling(sample_event, sample_context):
     """Test handler handles pipeline errors gracefully."""
     
@@ -372,11 +354,6 @@ nhs_number,name,dob,ethnicity,postcode
         response_body = json.loads(response['body'])
         assert 'Pipeline processing error' in response_body['message']
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_file_write_error_handling(sample_event, sample_context):
     """Test handler handles file writing errors gracefully."""
     
@@ -407,11 +384,6 @@ nhs_number,name,dob,ethnicity,postcode
 
 # Data Validation Integration Tests
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/missing_nhs_column.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_lambda_handler_with_missing_nhs_column(sample_event, sample_context, missing_nhs_column_path):
     """Test lambda handler with GP records file missing NHS number column."""
     
@@ -441,11 +413,6 @@ Jane Doe,1975-06-22,Asian,BS1 2BB"""
         assert body_data['records_processed'] == 2
         assert body_data['records_retained'] == 0  # No NHS column means no matches
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/missing_nhs_values.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_lambda_handler_with_missing_nhs_numbers(sample_event, sample_context, missing_nhs_numbers_path):
     """Test lambda handler with GP records containing some missing NHS numbers."""
     
@@ -519,11 +486,6 @@ def test_missing_s3_records(sample_context):
 
 # Integration Tests
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_end_to_end_processing_success(sample_event, sample_context, tmp_path):
     """Test complete end-to-end processing flow."""
     
@@ -566,11 +528,6 @@ nhs_number,name
         # Verify the to_csv method was called (output file writing)
         mock_to_csv.assert_called_once()
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_output_file_creation_integration(sample_event, sample_context, tmp_path):
     """Test that output file is actually created with correct content."""
     output_dir = tmp_path / 'output'
@@ -614,11 +571,6 @@ def test_output_file_creation_integration(sample_event, sample_context, tmp_path
         assert records_processed == 1
         assert records_filtered == 1
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_end_to_end_no_cohort_members(sample_event, sample_context):
     """Test end-to-end processing when no cohort members found."""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
@@ -647,11 +599,6 @@ def test_end_to_end_no_cohort_members(sample_event, sample_context):
         assert records_processed == 1
         assert records_filtered == 0
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_cohort_read_error_handling(sample_event, sample_context):
     """Test error handling when cohort reading fails."""
     with patch('fsspec.open') as mock_fsspec_open, \
@@ -683,11 +630,6 @@ def test_cohort_read_error_handling(sample_event, sample_context):
         
         assert 'Cohort file not accessible' in error_message
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_cohort_membership_lookup_logic(sample_event, sample_context):
     """Test the cohort membership lookup logic with mixed data."""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
@@ -737,11 +679,6 @@ nhs_number,name,dob
         assert records_processed == 4
         assert records_filtered == 2  # Only 2 matches
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_encryption_service_response_parsing(sample_event, sample_context):
     """Test Lambda handler handles encryption service response parsing correctly"""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
@@ -783,11 +720,6 @@ def test_encryption_service_response_parsing(sample_event, sample_context):
         assert body_data['records_retained'] == 1
 
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_encryption_service_timeout_handling(sample_event, sample_context):
     """Test Lambda handler manages encryption service timeouts and retries"""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
@@ -823,11 +755,6 @@ def test_encryption_service_timeout_handling(sample_event, sample_context):
         assert response_body['records_processed'] == 1
         assert response_body['records_retained'] == 0
 
-@patch.dict(os.environ, {
-    'COHORT_STORE': 's3://test-bucket/cohort.csv',
-    'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-    'OUTPUT_LOCATION': '/tmp'
-})
 def test_malformed_encryption_response_handling(sample_event, sample_context):
     """Test Lambda handler handles malformed responses from encryption service"""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \

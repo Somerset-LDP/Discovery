@@ -66,5 +66,6 @@ docker buildx build \
 * `COHORT_STORE` - path to the cohort store
 * `INPUT_LOCATION` - path to input file (likely this will point to a path in the pseudonmisation layer that holds psedunymised GP records in EMIS format)
 * `OUTPUT_LOCATION` - path to the root output dir. The pipeline will write its output file under this dir.
+* `PSEUDONYMISATION_LAMBDA_FUNCTION_NAME` - the name of the Pseudonymisation Lambda that the IG conformance pipeline will use as part of the cohort checking step
 
 For testing the `SKIP_ENCRYPTION` variable can be set to avoid calling out to the Psuedonymisation service. This is not recommended for production

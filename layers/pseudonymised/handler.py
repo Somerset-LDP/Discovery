@@ -5,7 +5,6 @@ from io import StringIO
 from typing import Dict, Any
 
 import pandas as pd
-from dotenv import load_dotenv
 
 from aws_utils import (
     list_s3_files,
@@ -16,8 +15,6 @@ from aws_utils import (
 )
 from env_utils import get_env_variables
 from validation_utils import validate_dataframe
-
-load_dotenv()
 
 
 def setup_logging():

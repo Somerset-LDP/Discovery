@@ -8,8 +8,8 @@ from unittest.mock import patch
 import pytest
 from botocore.exceptions import ClientError
 
-from lambda_functions.pseudonymisation.logging_utils import CorrelationLogger
-from lambda_functions.pseudonymisation.pseudonymisation import (
+from logging_utils import CorrelationLogger
+from pseudonymisation import (
     load_config,
     get_secret,
     Config,
@@ -47,7 +47,7 @@ def mock_logger():
 
 @pytest.fixture
 def mock_secrets_client():
-    with patch('lambda_functions.pseudonymisation.pseudonymisation.secrets_client') as mock:
+    with patch('pseudonymisation.secrets_client') as mock:
         yield mock
 
 
@@ -64,7 +64,7 @@ def env_vars_set():
 
 @pytest.fixture
 def mock_kms_client():
-    with patch('lambda_functions.pseudonymisation.pseudonymisation.kms_client') as mock:
+    with patch('pseudonymisation.kms_client') as mock:
         yield mock
 
 
@@ -106,7 +106,7 @@ def test_load_config_cache_ttl(mock_logger, env_vars_set, cache_ttl, expected):
         "keys": {"v1": "AQIDAHi8xK..."
                  }})
 
-    with patch('lambda_functions.pseudonymisation.pseudonymisation.get_secret') as mock_get_secret:
+    with patch('pseudonymisation.get_secret') as mock_get_secret:
         mock_get_secret.side_effect = [
             'arn:aws:kms:region:account:key/id',
             key_versions_json
@@ -132,7 +132,7 @@ def test_load_config_missing_current_version(mock_logger, env_vars_set):
         "keys": {"v1": "AQIDAHi8xK..."}
     })
 
-    with patch('lambda_functions.pseudonymisation.pseudonymisation.get_secret') as mock_get_secret:
+    with patch('pseudonymisation.get_secret') as mock_get_secret:
         mock_get_secret.side_effect = ['arn:aws:kms:region:account:key/id', encrypted_keys_json]
 
         with pytest.raises(ValueError, match="Encrypted keys secret missing 'current' field"):

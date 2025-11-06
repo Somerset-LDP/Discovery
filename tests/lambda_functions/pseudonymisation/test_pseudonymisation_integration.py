@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 import json
 from botocore.exceptions import ClientError
 
-from lambda_functions.pseudonymisation.pseudonymisation import (
+from pseudonymisation import (
     lambda_handler,
     key_cache,
 )
@@ -39,8 +39,8 @@ def mock_everything():
         'SECRET_NAME_KEY_VERSIONS': 'key-versions-secret',
         'ALGORITHM_ID': 'AES-SIV'
     }):
-        with patch('lambda_functions.pseudonymisation.pseudonymisation.secrets_client') as mock_secrets, \
-             patch('lambda_functions.pseudonymisation.pseudonymisation.kms_client') as mock_kms:
+        with patch('pseudonymisation.secrets_client') as mock_secrets, \
+             patch('pseudonymisation.kms_client') as mock_kms:
 
             mock_secrets.get_secret_value.side_effect = mock_get_secret
             mock_kms.decrypt.return_value = {'Plaintext': b'0' * 32}
@@ -156,8 +156,8 @@ def test_integration_kms_error(context):
         'SECRET_NAME_KEY_VERSIONS': 'key-versions-secret',
         'ALGORITHM_ID': 'AES-SIV'
     }):
-        with patch('lambda_functions.pseudonymisation.pseudonymisation.secrets_client') as mock_secrets, \
-             patch('lambda_functions.pseudonymisation.pseudonymisation.kms_client') as mock_kms:
+        with patch('pseudonymisation.secrets_client') as mock_secrets, \
+             patch('pseudonymisation.kms_client') as mock_kms:
 
             mock_secrets.get_secret_value.side_effect = mock_get_secret
             mock_kms.decrypt.side_effect = ClientError(

@@ -39,6 +39,7 @@ def create_lambda_container_with_env(cohort_store_path, input_location_path, out
     container.with_env("INPUT_LOCATION", "file:///input.csv")
     container.with_env("OUTPUT_LOCATION", "file:///output")
     container.with_env("SKIP_ENCRYPTION", "true")
+    container.with_env("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME", "test-pseudonymisation-lambda")
 
     container.waiting_for(HttpWaitStrategy(8080, "/2015-03-31/functions/function/invocations").for_status_code_matching(lambda status_code: 200 <= status_code < 600))
 

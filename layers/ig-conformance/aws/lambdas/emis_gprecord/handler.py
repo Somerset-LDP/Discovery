@@ -40,7 +40,8 @@ def lambda_handler(event, context):
         cohort_store_location = os.getenv("COHORT_STORE")
         gp_records_store_location = os.getenv("INPUT_LOCATION")
         output_location = os.getenv("OUTPUT_LOCATION")
-        if cohort_store_location and gp_records_store_location and output_location:
+        pseudo_service_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
+        if cohort_store_location and gp_records_store_location and output_location and pseudo_service_name:
             header_rows, gp_records = _read_gp_records(gp_records_store_location)
             cohort_store = read_cohort_members(cohort_store_location)
 
@@ -64,7 +65,7 @@ def lambda_handler(event, context):
     
         else:
             response = _get_response(
-                message='Missing one or more of the required environment variables - COHORT_STORE, INPUT_LOCATION, OUTPUT_LOCATION',
+                message='Missing one or more of the required environment variables - COHORT_STORE, INPUT_LOCATION, OUTPUT_LOCATION, PSEUDONYMISATION_LAMBDA_FUNCTION_NAME',
                 request_id=context.aws_request_id,
                 status_code=400
             )
@@ -289,11 +290,16 @@ def _encrypt(field_name: str, value: str) -> str | None:
     
     logger.info(f"Encrypting value for field: {field_name}")
 
+    function_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
+    if not function_name:
+        logger.error("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
+        raise ValueError("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
+
     try:
         # Encrypt a single value
         lambda_client = boto3.client('lambda')    
         response = lambda_client.invoke(
-            FunctionName='pseudonymisation-data-processing',
+            FunctionName=function_name,
             InvocationType='RequestResponse',
             Payload=json.dumps({
                 'action': 'encrypt',

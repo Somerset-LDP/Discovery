@@ -1,0 +1,37 @@
+name: Zip and Upload Cohort Lambda Files to S3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'layers/pseudonymised/**'
+
+
+jobs:
+  zip-and-upload:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
+          aws-region: eu-west-2
+
+
+      - name: Create ZIP with Python files
+        run: |
+          cd layers/pseudonymised && zip lambda_main.zip *
+
+      - name: Upload ZIP to S3
+        run: |
+          cd layers/pseudonymised && aws s3 cp lambda_main.zip s3://somerset-647582858282-dev-lambda/layers/pseudonymised/lambda_main.zip

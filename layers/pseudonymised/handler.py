@@ -50,10 +50,13 @@ FIELDS_TO_PSEUDONYMISE = {
 }
 
 
-def read_csv_from_s3(bucket: str, key: str) -> pd.DataFrame:
+def read_csv_from_s3(bucket: str, key: str) -> tuple[pd.DataFrame, list[str]]:
     try:
         content = read_s3_file(bucket, key)
         content_str = content.decode('utf-8')
+
+        lines = content_str.split('\n')
+        metadata_lines = lines[:2] if len(lines) >= 2 else []
 
         df = pd.read_csv(
             StringIO(content_str),
@@ -63,7 +66,7 @@ def read_csv_from_s3(bucket: str, key: str) -> pd.DataFrame:
             skiprows=2,
             header=0
         )
-        return df
+        return df, metadata_lines
 
     except UnicodeDecodeError as e:
         logger.error(f"Failed to decode file s3://{bucket}/{key}: {e}", exc_info=True)
@@ -111,13 +114,18 @@ def pseudonymise(df: pd.DataFrame, lambda_function_name: str) -> pd.DataFrame:
 def write_pseudonymised_data(
         df: pd.DataFrame,
         bucket: str,
-        kms_key_id: str
+        kms_key_id: str,
+        metadata_lines: list[str]
 ) -> None:
     if df.empty:
         raise ValueError("No records to write")
 
     output_key = generate_output_key()
     csv_buffer = StringIO()
+
+    for line in metadata_lines:
+        csv_buffer.write(line + '\n')
+
     df.to_csv(csv_buffer, index=False)
     csv_content = csv_buffer.getvalue()
     write_to_s3(bucket, output_key, csv_content, kms_key_id)
@@ -157,7 +165,7 @@ def process_file(
 ) -> Dict[str, Any]:
     logger.info(f"Processing file: s3://{bucket}/{s3_key}")
 
-    df = read_csv_from_s3(bucket, s3_key)
+    df, metadata = read_csv_from_s3(bucket, s3_key)
     if df.empty:
         logger.warning(f"No records found in file: s3://{bucket}/{s3_key}")
         delete_s3_file(bucket, s3_key)
@@ -202,7 +210,8 @@ def process_file(
     write_pseudonymised_data(
         df,
         output_bucket,
-        kms_key_id
+        kms_key_id,
+        metadata
     )
 
     delete_s3_file(bucket, s3_key)

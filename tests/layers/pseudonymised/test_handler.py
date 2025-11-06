@@ -169,11 +169,11 @@ def test_write_pseudonymised_data_raises_value_error_when_dataframe_empty():
 @patch('layers.pseudonymised.handler.datetime')
 def test_generate_output_key_returns_correct_format(mock_datetime):
     from datetime import datetime
-    mock_datetime.now.return_value = datetime(2025, 11, 6, 14, 30, 45)
+    mock_datetime.now.return_value = datetime(2025, 11, 6, 14, 30, 45, 123456)
 
     result = generate_output_key()
 
-    assert result == 'emis_gp_feed/2025/11/06/raw/patient_20251106_143045.csv'
+    assert result == 'emis_gp_feed/2025/11/06/raw/patient_20251106_143045_123456.csv'
 
 
 @pytest.mark.parametrize(

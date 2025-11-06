@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from layers.pseudonymised.validation_utils import (
+from validation_utils import (
     is_valid_string,
     is_valid_gender,
     is_valid_nhs_number,

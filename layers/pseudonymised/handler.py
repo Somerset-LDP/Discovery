@@ -7,15 +7,15 @@ from typing import Dict, Any
 import pandas as pd
 from dotenv import load_dotenv
 
-from layers.pseudonymised.aws_utils import (
+from aws_utils import (
     list_s3_files,
     read_s3_file,
     write_to_s3,
     delete_s3_file,
     invoke_pseudonymisation_lambda_batch
 )
-from layers.pseudonymised.env_utils import get_env_variables
-from layers.pseudonymised.validation_utils import validate_dataframe
+from env_utils import get_env_variables
+from validation_utils import validate_dataframe
 
 load_dotenv()
 

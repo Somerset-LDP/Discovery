@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from botocore.exceptions import ClientError
 
-from layers.pseudonymised.aws_utils import (
+from aws_utils import (
     list_s3_files,
     read_s3_file,
     write_to_s3,
@@ -13,7 +13,7 @@ from layers.pseudonymised.aws_utils import (
 )
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_list_s3_files_returns_csv_files(mock_s3_client):
     mock_paginator = MagicMock()
     mock_s3_client.get_paginator.return_value = mock_paginator
@@ -34,7 +34,7 @@ def test_list_s3_files_returns_csv_files(mock_s3_client):
     mock_s3_client.get_paginator.assert_called_once_with('list_objects_v2')
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_list_s3_files_raises_client_error_on_failure(mock_s3_client):
     mock_s3_client.get_paginator.side_effect = ClientError(
         {'Error': {'Code': 'NoSuchBucket', 'Message': 'Bucket not found'}},
@@ -45,7 +45,7 @@ def test_list_s3_files_raises_client_error_on_failure(mock_s3_client):
         list_s3_files('test-bucket', 'prefix/')
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_read_s3_file_returns_file_content(mock_s3_client):
     expected_content = b'test content'
     mock_s3_client.get_object.return_value = {
@@ -58,7 +58,7 @@ def test_read_s3_file_returns_file_content(mock_s3_client):
     mock_s3_client.get_object.assert_called_once_with(Bucket='test-bucket', Key='test-key')
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_read_s3_file_raises_client_error_on_failure(mock_s3_client):
     mock_s3_client.get_object.side_effect = ClientError(
         {'Error': {'Code': 'NoSuchKey', 'Message': 'Key not found'}},
@@ -69,7 +69,7 @@ def test_read_s3_file_raises_client_error_on_failure(mock_s3_client):
         read_s3_file('test-bucket', 'test-key')
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_write_to_s3_uploads_file_with_encryption(mock_s3_client):
     write_to_s3('test-bucket', 'test-key', 'test content', 'test-kms-key')
 
@@ -82,7 +82,7 @@ def test_write_to_s3_uploads_file_with_encryption(mock_s3_client):
     )
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_write_to_s3_raises_client_error_on_failure(mock_s3_client):
     mock_s3_client.put_object.side_effect = ClientError(
         {'Error': {'Code': 'AccessDenied', 'Message': 'Access denied'}},
@@ -93,14 +93,14 @@ def test_write_to_s3_raises_client_error_on_failure(mock_s3_client):
         write_to_s3('test-bucket', 'test-key', 'test content', 'test-kms-key')
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_delete_s3_file_deletes_successfully(mock_s3_client):
     delete_s3_file('test-bucket', 'test-key')
 
     mock_s3_client.delete_object.assert_called_once_with(Bucket='test-bucket', Key='test-key')
 
 
-@patch('layers.pseudonymised.aws_utils.s3_client')
+@patch('aws_utils.s3_client')
 def test_delete_s3_file_raises_client_error_on_failure(mock_s3_client):
     mock_s3_client.delete_object.side_effect = ClientError(
         {'Error': {'Code': 'NoSuchKey', 'Message': 'Key not found'}},
@@ -111,7 +111,7 @@ def test_delete_s3_file_raises_client_error_on_failure(mock_s3_client):
         delete_s3_file('test-bucket', 'test-key')
 
 
-@patch('layers.pseudonymised.aws_utils.lambda_client')
+@patch('aws_utils.lambda_client')
 def test_invoke_pseudonymisation_lambda_batch_returns_pseudonymised_values(mock_lambda_client):
     mock_response = {
         'Payload': MagicMock(read=MagicMock(return_value=json.dumps({
@@ -130,7 +130,7 @@ def test_invoke_pseudonymisation_lambda_batch_returns_pseudonymised_values(mock_
     mock_lambda_client.invoke.assert_called_once()
 
 
-@patch('layers.pseudonymised.aws_utils.lambda_client')
+@patch('aws_utils.lambda_client')
 def test_invoke_pseudonymisation_lambda_batch_raises_value_error_on_lambda_error(mock_lambda_client):
     mock_response = {
         'Payload': MagicMock(read=MagicMock(return_value=json.dumps({

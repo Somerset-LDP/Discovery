@@ -1,7 +1,7 @@
 import logging
 import json
 import pytest
-from lambda_functions.pseudonymisation.logging_utils import JsonFormatter, CorrelationLogger
+from logging_utils import JsonFormatter, CorrelationLogger
 
 
 @pytest.fixture

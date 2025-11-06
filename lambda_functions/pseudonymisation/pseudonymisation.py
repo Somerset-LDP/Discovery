@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 from cryptography.hazmat.primitives.ciphers.aead import AESSIV
 from dotenv import load_dotenv
 
-from lambda_functions.pseudonymisation.logging_utils import CorrelationLogger, JsonFormatter
+from logging_utils import CorrelationLogger, JsonFormatter
 
 load_dotenv()
 

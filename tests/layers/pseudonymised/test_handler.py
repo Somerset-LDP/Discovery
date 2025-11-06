@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from handler import (
+from layers.pseudonymised.handler import (
     read_csv_from_s3,
     normalize_nhs_numbers,
     pseudonymise,
@@ -17,7 +17,7 @@ from handler import (
 )
 
 
-@patch('handler.read_s3_file')
+@patch('layers.pseudonymised.handler.read_s3_file')
 def test_read_csv_from_s3_returns_dataframe(mock_read_s3_file):
     csv_content = """Line 1 to skip
 Line 2 to skip
@@ -27,17 +27,16 @@ NHS Number,Given Name,Family Name,Date of Birth,Gender,Postcode
 
     mock_read_s3_file.return_value = csv_content.encode('utf-8')
 
-    result_df, metadata = read_csv_from_s3('test-bucket', 'test-key.csv')
+    result = read_csv_from_s3('test-bucket', 'test-key.csv')
 
-    assert isinstance(result_df, pd.DataFrame)
-    assert len(result_df) == 2
-    assert list(result_df.columns) == ['NHS Number', 'Given Name', 'Family Name', 'Date of Birth', 'Gender', 'Postcode']
-    assert result_df.iloc[0]['NHS Number'] == '9434765919'
-    assert result_df.iloc[1]['Given Name'] == 'Jane'
-    assert metadata == ['Line 1 to skip', 'Line 2 to skip']
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) == 2
+    assert list(result.columns) == ['NHS Number', 'Given Name', 'Family Name', 'Date of Birth', 'Gender', 'Postcode']
+    assert result.iloc[0]['NHS Number'] == '9434765919'
+    assert result.iloc[1]['Given Name'] == 'Jane'
 
 
-@patch('handler.read_s3_file')
+@patch('layers.pseudonymised.handler.read_s3_file')
 def test_read_csv_from_s3_raises_value_error_on_decode_failure(mock_read_s3_file):
     mock_read_s3_file.return_value = b'\x80\x81\x82\x83'
 
@@ -67,7 +66,7 @@ def test_normalize_nhs_numbers(input_nhs_numbers, expected_nhs_numbers):
     assert result['NHS Number'].tolist() == expected_nhs_numbers
 
 
-@patch('handler.invoke_pseudonymisation_lambda_batch')
+@patch('layers.pseudonymised.handler.invoke_pseudonymisation_lambda_batch')
 def test_pseudonymise_returns_pseudonymised_dataframe(mock_invoke_lambda):
     df = pd.DataFrame({
         'NHS Number': ['9434765919', '8314495581'],
@@ -95,7 +94,7 @@ def test_pseudonymise_returns_pseudonymised_dataframe(mock_invoke_lambda):
     assert mock_invoke_lambda.call_count == 6
 
 
-@patch('handler.invoke_pseudonymisation_lambda_batch')
+@patch('layers.pseudonymised.handler.invoke_pseudonymisation_lambda_batch')
 def test_pseudonymise_raises_value_error_when_record_count_mismatch(mock_invoke_lambda):
     df = pd.DataFrame({
         'NHS Number': ['9434765919', '8314495581'],
@@ -115,7 +114,7 @@ def test_pseudonymise_raises_value_error_when_record_count_mismatch(mock_invoke_
     assert 'expected 2, got 1' in str(exc_info.value)
 
 
-@patch('handler.invoke_pseudonymisation_lambda_batch')
+@patch('layers.pseudonymised.handler.invoke_pseudonymisation_lambda_batch')
 def test_pseudonymise_raises_value_error_on_lambda_error(mock_invoke_lambda):
     df = pd.DataFrame({
         'NHS Number': ['9434765919'],
@@ -134,8 +133,8 @@ def test_pseudonymise_raises_value_error_on_lambda_error(mock_invoke_lambda):
     assert 'Lambda invocation failed' in str(exc_info.value)
 
 
-@patch('handler.write_to_s3')
-@patch('handler.generate_output_key')
+@patch('layers.pseudonymised.handler.write_to_s3')
+@patch('layers.pseudonymised.handler.generate_output_key')
 def test_write_pseudonymised_data_writes_to_s3(mock_generate_key, mock_write_to_s3):
     df = pd.DataFrame({
         'NHS Number': ['pseudo_nhs_1', 'pseudo_nhs_2'],
@@ -146,20 +145,15 @@ def test_write_pseudonymised_data_writes_to_s3(mock_generate_key, mock_write_to_
         'Postcode': ['pseudo_postcode_1', 'pseudo_postcode_2']
     })
 
-    metadata_lines = ['Metadata line 1', 'Metadata line 2']
-
     mock_generate_key.return_value = 'emis_gp_feed/2025/11/06/raw/patient_123456.csv'
 
-    write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key', metadata_lines)
+    write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key')
 
     mock_write_to_s3.assert_called_once()
     call_args = mock_write_to_s3.call_args
     assert call_args[0][0] == 'test-output-bucket'
     assert call_args[0][1] == 'emis_gp_feed/2025/11/06/raw/patient_123456.csv'
-    content = call_args[0][2]
-    assert 'Metadata line 1\n' in content
-    assert 'Metadata line 2\n' in content
-    assert 'pseudo_nhs_1' in content
+    assert 'pseudo_nhs_1' in call_args[0][2]
     assert call_args[0][3] == 'test-kms-key'
 
 
@@ -167,19 +161,19 @@ def test_write_pseudonymised_data_raises_value_error_when_dataframe_empty():
     df = pd.DataFrame()
 
     with pytest.raises(ValueError) as exc_info:
-        write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key', [])
+        write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key')
 
     assert 'No records to write' in str(exc_info.value)
 
 
-@patch('handler.datetime')
+@patch('layers.pseudonymised.handler.datetime')
 def test_generate_output_key_returns_correct_format(mock_datetime):
     from datetime import datetime
-    mock_datetime.now.return_value = datetime(2025, 11, 6, 14, 30, 45, 123456)
+    mock_datetime.now.return_value = datetime(2025, 11, 6, 14, 30, 45)
 
     result = generate_output_key()
 
-    assert result == 'emis_gp_feed/2025/11/06/raw/patient_20251106_143045_123456.csv'
+    assert result == 'emis_gp_feed/2025/11/06/raw/patient_20251106_143045.csv'
 
 
 @pytest.mark.parametrize(
@@ -220,12 +214,12 @@ def test_create_response(message, status_code, kwargs, expected_status, expected
         assert body[key] == value
 
 
-@patch('handler.delete_s3_file')
-@patch('handler.write_pseudonymised_data')
-@patch('handler.pseudonymise')
-@patch('handler.normalize_nhs_numbers')
-@patch('handler.validate_dataframe')
-@patch('handler.read_csv_from_s3')
+@patch('layers.pseudonymised.handler.delete_s3_file')
+@patch('layers.pseudonymised.handler.write_pseudonymised_data')
+@patch('layers.pseudonymised.handler.pseudonymise')
+@patch('layers.pseudonymised.handler.normalize_nhs_numbers')
+@patch('layers.pseudonymised.handler.validate_dataframe')
+@patch('layers.pseudonymised.handler.read_csv_from_s3')
 def test_process_file_processes_successfully(
     mock_read_csv,
     mock_validate,
@@ -246,9 +240,8 @@ def test_process_file_processes_successfully(
     validated_df = input_df.copy()
     normalized_df = input_df.copy()
     pseudonymised_df = input_df.copy()
-    metadata_lines = ['Metadata line 1', 'Metadata line 2']
 
-    mock_read_csv.return_value = (input_df, metadata_lines)
+    mock_read_csv.return_value = input_df
     mock_validate.return_value = (validated_df, [])
     mock_normalize.return_value = normalized_df
     mock_pseudonymise.return_value = pseudonymised_df
@@ -270,10 +263,10 @@ def test_process_file_processes_successfully(
     mock_delete.assert_called_once_with('test-input-bucket', 'test-key.csv')
 
 
-@patch('handler.delete_s3_file')
-@patch('handler.read_csv_from_s3')
+@patch('layers.pseudonymised.handler.delete_s3_file')
+@patch('layers.pseudonymised.handler.read_csv_from_s3')
 def test_process_file_returns_zeros_when_empty_dataframe(mock_read_csv, mock_delete):
-    mock_read_csv.return_value = (pd.DataFrame(), [])
+    mock_read_csv.return_value = pd.DataFrame()
 
     result = process_file(
         'test-input-bucket',
@@ -291,9 +284,9 @@ def test_process_file_returns_zeros_when_empty_dataframe(mock_read_csv, mock_del
     mock_delete.assert_called_once_with('test-input-bucket', 'test-key.csv')
 
 
-@patch('handler.delete_s3_file')
-@patch('handler.validate_dataframe')
-@patch('handler.read_csv_from_s3')
+@patch('layers.pseudonymised.handler.delete_s3_file')
+@patch('layers.pseudonymised.handler.validate_dataframe')
+@patch('layers.pseudonymised.handler.read_csv_from_s3')
 def test_process_file_returns_zeros_when_no_valid_records(mock_read_csv, mock_validate, mock_delete):
     input_df = pd.DataFrame({
         'NHS Number': ['1234567890', '0987654321'],
@@ -304,7 +297,7 @@ def test_process_file_returns_zeros_when_no_valid_records(mock_read_csv, mock_va
         'Postcode': ['SW1A 1AA', 'M1 1AA']
     })
 
-    mock_read_csv.return_value = (input_df, ['Metadata 1', 'Metadata 2'])
+    mock_read_csv.return_value = input_df
     mock_validate.return_value = (pd.DataFrame(), [
         {'row_index': 0, 'error': 'Invalid NHS Number'},
         {'row_index': 1, 'error': 'Invalid NHS Number'}
@@ -326,10 +319,10 @@ def test_process_file_returns_zeros_when_no_valid_records(mock_read_csv, mock_va
     mock_delete.assert_called_once_with('test-input-bucket', 'test-key.csv')
 
 
-@patch('handler.pseudonymise')
-@patch('handler.normalize_nhs_numbers')
-@patch('handler.validate_dataframe')
-@patch('handler.read_csv_from_s3')
+@patch('layers.pseudonymised.handler.pseudonymise')
+@patch('layers.pseudonymised.handler.normalize_nhs_numbers')
+@patch('layers.pseudonymised.handler.validate_dataframe')
+@patch('layers.pseudonymised.handler.read_csv_from_s3')
 def test_process_file_raises_value_error_when_record_count_mismatch_after_pseudonymisation(
     mock_read_csv,
     mock_validate,
@@ -356,7 +349,7 @@ def test_process_file_raises_value_error_when_record_count_mismatch_after_pseudo
         'Postcode': ['pseudo_postcode_1']
     })
 
-    mock_read_csv.return_value = (input_df, ['Metadata 1', 'Metadata 2'])
+    mock_read_csv.return_value = input_df
     mock_validate.return_value = (validated_df, [])
     mock_normalize.return_value = normalized_df
     mock_pseudonymise.return_value = pseudonymised_df
@@ -373,8 +366,8 @@ def test_process_file_raises_value_error_when_record_count_mismatch_after_pseudo
     assert 'Record count mismatch after pseudonymisation' in str(exc_info.value)
 
 
-@patch('handler.process_file')
-@patch('handler.list_s3_files')
+@patch('layers.pseudonymised.handler.process_file')
+@patch('layers.pseudonymised.handler.list_s3_files')
 def test_process_all_files_processes_multiple_files(mock_list_files, mock_process_file):
     mock_list_files.return_value = ['file1.csv', 'file2.csv', 'file3.csv']
 
@@ -416,7 +409,7 @@ def test_process_all_files_processes_multiple_files(mock_list_files, mock_proces
     assert mock_process_file.call_count == 3
 
 
-@patch('handler.list_s3_files')
+@patch('layers.pseudonymised.handler.list_s3_files')
 def test_process_all_files_returns_zeros_when_no_files(mock_list_files):
     mock_list_files.return_value = []
 
@@ -435,8 +428,8 @@ def test_process_all_files_returns_zeros_when_no_files(mock_list_files):
     assert result['total_records_pseudonymised'] == 0
 
 
-@patch('handler.process_all_files')
-@patch('handler.get_env_variables')
+@patch('layers.pseudonymised.handler.process_all_files')
+@patch('layers.pseudonymised.handler.get_env_variables')
 def test_lambda_handler_returns_success_response(mock_get_env, mock_process_all):
     mock_get_env.return_value = {
         'INPUT_S3_BUCKET': 'test-input-bucket',
@@ -466,8 +459,8 @@ def test_lambda_handler_returns_success_response(mock_get_env, mock_process_all)
     assert body['total_records_pseudonymised'] == 95
 
 
-@patch('handler.process_all_files')
-@patch('handler.get_env_variables')
+@patch('layers.pseudonymised.handler.process_all_files')
+@patch('layers.pseudonymised.handler.get_env_variables')
 def test_lambda_handler_returns_success_response_when_no_files(mock_get_env, mock_process_all):
     mock_get_env.return_value = {
         'INPUT_S3_BUCKET': 'test-input-bucket',
@@ -494,7 +487,7 @@ def test_lambda_handler_returns_success_response_when_no_files(mock_get_env, moc
     assert body['total_records_input'] == 0
 
 
-@patch('handler.get_env_variables')
+@patch('layers.pseudonymised.handler.get_env_variables')
 def test_lambda_handler_returns_error_response_on_exception(mock_get_env):
     mock_get_env.side_effect = ValueError('Missing required environment variables: INPUT_S3_BUCKET')
 

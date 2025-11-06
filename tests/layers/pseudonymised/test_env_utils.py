@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from env_utils import get_env_variables
+from layers.pseudonymised.env_utils import get_env_variables
 
 
 def test_get_env_variables_returns_all_required_variables():
@@ -34,3 +34,4 @@ def test_get_env_variables_raises_value_error_when_variables_missing():
 
         assert "Missing required environment variables" in str(exc_info.value)
         assert "INPUT_PREFIX" in str(exc_info.value)
+

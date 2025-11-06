@@ -17,7 +17,8 @@ import json
 
 # Configure logging
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+log_level = os.getenv("LOG_LEVEL", "INFO")  # default to INFO
+logger.setLevel(log_level.upper())
 
 def lambda_handler(event, context):
     """
@@ -42,14 +43,14 @@ def lambda_handler(event, context):
         output_location = os.getenv("OUTPUT_LOCATION")
         pseudo_service_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
         if cohort_store_location and gp_records_store_location and output_location and pseudo_service_name:
-            header_rows, gp_records = _read_gp_records(gp_records_store_location)
+            metadata_rows, gp_records = _read_gp_records(gp_records_store_location)
             cohort_store = read_cohort_members(cohort_store_location)
 
             cohort_member_records = run(cohort_store, gp_records, _encrypt)
             logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
 
             # TODO - need to keep first three rows
-            output_file = _write_output(cohort_member_records, header_rows, output_location)
+            output_file = _write_output(cohort_member_records, metadata_rows, output_location)
             delete_file(gp_records_store_location)
 
             logger.info("GP pipeline executed successfully")
@@ -88,9 +89,9 @@ def _read_gp_records(path: str) -> Tuple[List[str], pd.DataFrame]:
         if isinstance(file, list):
             raise ValueError(f"Expected one file, got {len(file)}: {path}")
         
-        # Read the first 3 lines as headers
+        # Read the first 2 lines as headers
         lines = file.readlines()
-        header_rows = [line.strip() for line in lines[:3]]
+        metadata_rows = [line.strip() for line in lines[:2]]
         
         # Reset file pointer and read as DataFrame
         file.seek(0)        
@@ -105,9 +106,9 @@ def _read_gp_records(path: str) -> Tuple[List[str], pd.DataFrame]:
             header=0 # Single header row
         )
 
-    return header_rows, df
+    return metadata_rows, df
 
-def _write_gp_records(records: pd.DataFrame, header_rows: List[str], location: str) -> str:
+def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location: str) -> str:
     """
     Write GP records to CSV file in the same format as input
     
@@ -132,11 +133,11 @@ def _write_gp_records(records: pd.DataFrame, header_rows: List[str], location: s
             if isinstance(file, list):
                 raise ValueError(f"Expected single file handle, got list: {file_path}")
 
-            # Write the original header rows
-            for header in header_rows:
-                file.write(header + '\n')
+            # Write the original metadata rows
+            for metadata_row in metadata_rows:
+                file.write(metadata_row + '\n')
             
-            # Write the filtered data (without writing headers again)
+            # Write the filtered data
             if not records.empty:
                 records.to_csv(file, index=False, header=True)
             else:
@@ -150,9 +151,9 @@ def _write_gp_records(records: pd.DataFrame, header_rows: List[str], location: s
 
     return file_path
 
-def _write_output(cohort_member_records, header_rows, output_location) -> str | None:
+def _write_output(cohort_member_records, metadata_rows, output_location) -> str | None:
     # Write the filtered results to output file
-    output_file = _write_gp_records(cohort_member_records, header_rows, output_location)
+    output_file = _write_gp_records(cohort_member_records, metadata_rows, output_location)
     logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
 
     return output_file
@@ -324,5 +325,6 @@ def _encrypt(field_name: str, value: str) -> str | None:
         raise
     except Exception as e:
         logger.error(f"Exception occurred while encrypting value for field: {field_name}: {str(e)}", exc_info=True)
+        raise
 
     return encrypted_value

@@ -11,9 +11,8 @@ from pipeline.emis_gprecord import run
 
 # Configure logging
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-
+log_level = os.getenv("LOG_LEVEL", "INFO")  # default to INFO
+logger.setLevel(log_level.upper())
 
 # Global cache
 _cached_username = None

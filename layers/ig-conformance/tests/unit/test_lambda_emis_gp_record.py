@@ -71,7 +71,8 @@ def valid_env_vars():
         'COHORT_STORE': 's3://test-bucket/cohort.csv',
         'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
         'OUTPUT_LOCATION': '/tmp',
-        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-pseudonymisation-lambda'
+        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-pseudonymisation-lambda',
+        'SKIP_ENCRYPTION': 'true'
     }):
         yield
 
@@ -710,14 +711,16 @@ def test_encryption_service_response_parsing(sample_event, sample_context):
         gp_content = "Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n1234567890,Alice Johnson\n"
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
+
+        with patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}):
         
-        response = lambda_handler(sample_event, sample_context)
-        
-        # Verify successful processing and correct response parsing
-        assert response['statusCode'] == 200
-        body_data = json.loads(response['body'])
-        assert body_data['records_processed'] == 1
-        assert body_data['records_retained'] == 1
+            response = lambda_handler(sample_event, sample_context)
+            
+            # Verify successful processing and correct response parsing
+            assert response['statusCode'] == 200
+            body_data = json.loads(response['body'])
+            assert body_data['records_processed'] == 1
+            assert body_data['records_retained'] == 1
 
 
 def test_encryption_service_timeout_handling(sample_event, sample_context):
@@ -744,16 +747,11 @@ def test_encryption_service_timeout_handling(sample_event, sample_context):
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
-        response = lambda_handler(sample_event, sample_context)
-        
-        # The pipeline should continue gracefully - encryption timeout causes record to be skipped
-        # but processing continues and returns 200
-        assert response['statusCode'] == 200
-        response_body = json.loads(response['body'])
-        
-        # Should process 1 record but retain 0 (because encryption failed)
-        assert response_body['records_processed'] == 1
-        assert response_body['records_retained'] == 0
+        with patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}):
+            response = lambda_handler(sample_event, sample_context)
+
+            # Pipeline fails if upon the first timeout on the Pseudonymisation service
+            assert response['statusCode'] == 500
 
 def test_malformed_encryption_response_handling(sample_event, sample_context):
     """Test Lambda handler handles malformed responses from encryption service"""
@@ -787,10 +785,11 @@ def test_malformed_encryption_response_handling(sample_event, sample_context):
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
-        response = lambda_handler(sample_event, sample_context)
-        
-        # Should handle malformed response gracefully - either fail or continue without processing
-        assert response['statusCode'] == 500
+        with patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}):
+            response = lambda_handler(sample_event, sample_context)
+            
+            # Should handle malformed response gracefully - either fail or continue without processing
+            assert response['statusCode'] == 500
 
 
 # File Format Validation Tests - No Mocking of pandas.DataFrame.to_csv

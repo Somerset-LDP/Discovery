@@ -27,13 +27,14 @@ NHS Number,Given Name,Family Name,Date of Birth,Gender,Postcode
 
     mock_read_s3_file.return_value = csv_content.encode('utf-8')
 
-    result = read_csv_from_s3('test-bucket', 'test-key.csv')
+    result_df, metadata = read_csv_from_s3('test-bucket', 'test-key.csv')
 
-    assert isinstance(result, pd.DataFrame)
-    assert len(result) == 2
-    assert list(result.columns) == ['NHS Number', 'Given Name', 'Family Name', 'Date of Birth', 'Gender', 'Postcode']
-    assert result.iloc[0]['NHS Number'] == '9434765919'
-    assert result.iloc[1]['Given Name'] == 'Jane'
+    assert isinstance(result_df, pd.DataFrame)
+    assert len(result_df) == 2
+    assert list(result_df.columns) == ['NHS Number', 'Given Name', 'Family Name', 'Date of Birth', 'Gender', 'Postcode']
+    assert result_df.iloc[0]['NHS Number'] == '9434765919'
+    assert result_df.iloc[1]['Given Name'] == 'Jane'
+    assert metadata == ['Line 1 to skip', 'Line 2 to skip']
 
 
 @patch('layers.pseudonymised.handler.read_s3_file')
@@ -145,15 +146,20 @@ def test_write_pseudonymised_data_writes_to_s3(mock_generate_key, mock_write_to_
         'Postcode': ['pseudo_postcode_1', 'pseudo_postcode_2']
     })
 
+    metadata_lines = ['Metadata line 1', 'Metadata line 2']
+
     mock_generate_key.return_value = 'emis_gp_feed/2025/11/06/raw/patient_123456.csv'
 
-    write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key')
+    write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key', metadata_lines)
 
     mock_write_to_s3.assert_called_once()
     call_args = mock_write_to_s3.call_args
     assert call_args[0][0] == 'test-output-bucket'
     assert call_args[0][1] == 'emis_gp_feed/2025/11/06/raw/patient_123456.csv'
-    assert 'pseudo_nhs_1' in call_args[0][2]
+    content = call_args[0][2]
+    assert 'Metadata line 1\n' in content
+    assert 'Metadata line 2\n' in content
+    assert 'pseudo_nhs_1' in content
     assert call_args[0][3] == 'test-kms-key'
 
 
@@ -161,7 +167,7 @@ def test_write_pseudonymised_data_raises_value_error_when_dataframe_empty():
     df = pd.DataFrame()
 
     with pytest.raises(ValueError) as exc_info:
-        write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key')
+        write_pseudonymised_data(df, 'test-output-bucket', 'test-kms-key', [])
 
     assert 'No records to write' in str(exc_info.value)
 
@@ -240,8 +246,9 @@ def test_process_file_processes_successfully(
     validated_df = input_df.copy()
     normalized_df = input_df.copy()
     pseudonymised_df = input_df.copy()
+    metadata_lines = ['Metadata line 1', 'Metadata line 2']
 
-    mock_read_csv.return_value = input_df
+    mock_read_csv.return_value = (input_df, metadata_lines)
     mock_validate.return_value = (validated_df, [])
     mock_normalize.return_value = normalized_df
     mock_pseudonymise.return_value = pseudonymised_df
@@ -266,7 +273,7 @@ def test_process_file_processes_successfully(
 @patch('layers.pseudonymised.handler.delete_s3_file')
 @patch('layers.pseudonymised.handler.read_csv_from_s3')
 def test_process_file_returns_zeros_when_empty_dataframe(mock_read_csv, mock_delete):
-    mock_read_csv.return_value = pd.DataFrame()
+    mock_read_csv.return_value = (pd.DataFrame(), [])
 
     result = process_file(
         'test-input-bucket',
@@ -297,7 +304,7 @@ def test_process_file_returns_zeros_when_no_valid_records(mock_read_csv, mock_va
         'Postcode': ['SW1A 1AA', 'M1 1AA']
     })
 
-    mock_read_csv.return_value = input_df
+    mock_read_csv.return_value = (input_df, ['Metadata 1', 'Metadata 2'])
     mock_validate.return_value = (pd.DataFrame(), [
         {'row_index': 0, 'error': 'Invalid NHS Number'},
         {'row_index': 1, 'error': 'Invalid NHS Number'}
@@ -349,7 +356,7 @@ def test_process_file_raises_value_error_when_record_count_mismatch_after_pseudo
         'Postcode': ['pseudo_postcode_1']
     })
 
-    mock_read_csv.return_value = input_df
+    mock_read_csv.return_value = (input_df, ['Metadata 1', 'Metadata 2'])
     mock_validate.return_value = (validated_df, [])
     mock_normalize.return_value = normalized_df
     mock_pseudonymise.return_value = pseudonymised_df

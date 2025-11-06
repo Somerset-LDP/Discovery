@@ -31,7 +31,7 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
                 filtered_records.append(record)
                 logger.debug(f"NHS number at index {index} is in cohort")
             else:
-                logger.debug(f"NHS number at index {index} is not in cohort")
+                logger.debug(f"NHS number at index {index} is not in cohort. Encrypted value: {encrypted_nhs}")
         else:
             logger.error(f"Failed to encrypt NHS number for record at index {index}")
 

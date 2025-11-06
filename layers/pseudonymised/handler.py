@@ -130,7 +130,7 @@ def generate_output_key() -> str:
     year = current_date.strftime("%Y")
     month = current_date.strftime("%m")
     day = current_date.strftime("%d")
-    timestamp = current_date.strftime("%Y%m%d_%H%M%S")
+    timestamp = current_date.strftime("%Y%m%d_%H%M%S_%f")
     filename = f"patient_{timestamp}.csv"
     output_key = f"emis_gp_feed/{year}/{month}/{day}/raw/{filename}"
 

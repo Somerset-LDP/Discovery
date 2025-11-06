@@ -128,7 +128,13 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
     logger.info(f"Writing {len(records)} records to: {file_path}")
 
     try:
-        with fsspec.open(file_path, mode="w", encoding="utf-8") as file:
+        with fsspec.open(file_path, 
+                         mode="w", 
+                         encoding="utf-8", 
+                         s3_additional_kwargs={
+                            "ServerSideEncryption": "aws:kms",
+                            "SSEKMSKeyId": os.getenv("KMS_KEY_ID"),
+        }) as file:
             # Check if file is a list (shouldn't happen with single file path, but fsspec can be unpredictable)
             if isinstance(file, list):
                 raise ValueError(f"Expected single file handle, got list: {file_path}")

@@ -1,0 +1,309 @@
+import json
+import logging
+from datetime import datetime
+from io import StringIO
+from typing import Dict, Any
+
+import pandas as pd
+from dotenv import load_dotenv
+
+from aws_utils import (
+    list_s3_files,
+    read_s3_file,
+    write_to_s3,
+    delete_s3_file,
+    invoke_pseudonymisation_lambda_batch
+)
+from env_utils import get_env_variables
+from validation_utils import validate_dataframe
+
+load_dotenv()
+
+
+def setup_logging():
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    logging.getLogger('boto3').setLevel(logging.WARNING)
+    logging.getLogger('botocore').setLevel(logging.WARNING)
+
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter())
+        logger.addHandler(handler)
+    else:
+        for handler in logger.handlers:
+            handler.setFormatter(logging.Formatter())
+
+    return logger
+
+
+logger = setup_logging()
+
+FIELDS_TO_PSEUDONYMISE = {
+    'NHS Number': 'nhs_number',
+    'Given Name': 'given_name',
+    'Family Name': 'family_name',
+    'Date of Birth': 'date_of_birth',
+    'Gender': 'gender',
+    'Postcode': 'postcode'
+}
+
+
+def read_csv_from_s3(bucket: str, key: str) -> tuple[pd.DataFrame, list[str]]:
+    try:
+        content = read_s3_file(bucket, key)
+        content_str = content.decode('utf-8')
+
+        lines = content_str.split('\n')
+        metadata_lines = lines[:2] if len(lines) >= 2 else []
+
+        df = pd.read_csv(
+            StringIO(content_str),
+            dtype=str,
+            keep_default_na=False,
+            na_values=['', 'NULL', 'null', 'None'],
+            skiprows=2,
+            header=0
+        )
+        return df, metadata_lines
+
+    except UnicodeDecodeError as e:
+        logger.error(f"Failed to decode file s3://{bucket}/{key}: {e}", exc_info=True)
+        raise ValueError(f"File encoding error for s3://{bucket}/{key}: {str(e)}")
+    except pd.errors.ParserError as e:
+        logger.error(f"Failed to parse CSV file s3://{bucket}/{key}: {e}", exc_info=True)
+        raise ValueError(f"CSV parsing error for s3://{bucket}/{key}: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error reading file s3://{bucket}/{key}: {e}", exc_info=True)
+        raise
+
+
+def normalize_nhs_numbers(df: pd.DataFrame) -> pd.DataFrame:
+    df['NHS Number'] = df['NHS Number'].astype(str).str.replace(' ', '').str.strip()
+    return df
+
+
+def pseudonymise(df: pd.DataFrame, lambda_function_name: str) -> pd.DataFrame:
+    try:
+        for csv_field_name, internal_field_name in FIELDS_TO_PSEUDONYMISE.items():
+            logger.info(f"Pseudonymising column: {csv_field_name}")
+            original_values = df[csv_field_name].tolist()
+            pseudonymised_values = invoke_pseudonymisation_lambda_batch(
+                internal_field_name,
+                original_values,
+                lambda_function_name
+            )
+
+            if len(pseudonymised_values) != len(original_values):
+                error_msg = f"Record count mismatch for field {csv_field_name}: expected {len(original_values)}, got {len(pseudonymised_values)}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            df[csv_field_name] = pseudonymised_values
+
+        return df
+
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during pseudonymisation: {e}", exc_info=True)
+        raise ValueError(f"Pseudonymisation failed: {str(e)}")
+
+
+def write_pseudonymised_data(
+        df: pd.DataFrame,
+        bucket: str,
+        kms_key_id: str,
+        metadata_lines: list[str]
+) -> None:
+    if df.empty:
+        raise ValueError("No records to write")
+
+    output_key = generate_output_key()
+    csv_buffer = StringIO()
+
+    for line in metadata_lines:
+        csv_buffer.write(line + '\n')
+
+    df.to_csv(csv_buffer, index=False)
+    csv_content = csv_buffer.getvalue()
+    write_to_s3(bucket, output_key, csv_content, kms_key_id)
+
+    logger.info(f"Successfully wrote {len(df)} records to s3://{bucket}/{output_key}")
+
+
+def generate_output_key() -> str:
+    current_date = datetime.now()
+    year = current_date.strftime("%Y")
+    month = current_date.strftime("%m")
+    day = current_date.strftime("%d")
+    timestamp = current_date.strftime("%Y%m%d_%H%M%S_%f")
+    filename = f"patient_{timestamp}.csv"
+    output_key = f"emis_gp_feed/{year}/{month}/{day}/raw/{filename}"
+
+    return output_key
+
+
+def create_response(message: str, status_code: int, **kwargs) -> Dict[str, Any]:
+    body_data = {
+        'message': message,
+    }
+    body_data.update(kwargs)
+    return {
+        'statusCode': status_code,
+        'body': json.dumps(body_data, default=str)
+    }
+
+
+def process_file(
+        bucket: str,
+        s3_key: str,
+        output_bucket: str,
+        lambda_function_name: str,
+        kms_key_id: str
+) -> Dict[str, Any]:
+    logger.info(f"Processing file: s3://{bucket}/{s3_key}")
+
+    df, metadata = read_csv_from_s3(bucket, s3_key)
+    if df.empty:
+        logger.warning(f"No records found in file: s3://{bucket}/{s3_key}")
+        delete_s3_file(bucket, s3_key)
+        return {
+            'records_input': 0,
+            'records_valid': 0,
+            'records_invalid': 0,
+            'records_pseudonymised': 0
+        }
+
+    records_input = len(df)
+    logger.info(f"File {s3_key}: {records_input} records on input")
+
+    df, invalid_records = validate_dataframe(df)
+    records_valid = len(df)
+    records_invalid = len(invalid_records)
+
+    logger.info(
+        f"File {s3_key}: {records_valid} valid records after validation, {records_invalid} invalid records removed")
+
+    if df.empty:
+        logger.warning(f"No valid records remaining in file: s3://{bucket}/{s3_key} after validation")
+        delete_s3_file(bucket, s3_key)
+        return {
+            'records_input': records_input,
+            'records_valid': records_valid,
+            'records_invalid': records_invalid,
+            'records_pseudonymised': 0
+        }
+
+    df = normalize_nhs_numbers(df)
+    df = pseudonymise(df, lambda_function_name)
+    records_pseudonymised = len(df)
+
+    logger.info(f"File {s3_key}: {records_pseudonymised} records after pseudonymisation")
+
+    if records_pseudonymised != records_valid:
+        error_msg = f"File {s3_key}: Record count mismatch after pseudonymisation."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    write_pseudonymised_data(
+        df,
+        output_bucket,
+        kms_key_id,
+        metadata
+    )
+
+    delete_s3_file(bucket, s3_key)
+
+    logger.info(
+        f"Successfully processed file s3://{bucket}/{s3_key}.")
+
+    return {
+        'records_input': records_input,
+        'records_valid': records_valid,
+        'records_invalid': records_invalid,
+        'records_pseudonymised': records_pseudonymised
+    }
+
+
+def process_all_files(
+        input_bucket: str,
+        input_prefix: str,
+        output_bucket: str,
+        lambda_function_name: str,
+        kms_key_id: str
+) -> Dict[str, Any]:
+    files = list_s3_files(input_bucket, input_prefix)
+
+    processed_files = []
+    total_records_input = 0
+    total_records_valid = 0
+    total_records_invalid = 0
+    total_records_pseudonymised = 0
+
+    if files:
+        for s3_key in files:
+            processed_file = process_file(
+                input_bucket,
+                s3_key,
+                output_bucket,
+                lambda_function_name,
+                kms_key_id
+            )
+
+            processed_files.append(processed_file)
+            total_records_input += processed_file['records_input']
+            total_records_valid += processed_file['records_valid']
+            total_records_invalid += processed_file['records_invalid']
+            total_records_pseudonymised += processed_file['records_pseudonymised']
+    else:
+        logger.warning(f"No files to process in s3://{input_bucket}/{input_prefix}")
+
+    return {
+        'files_processed': len(processed_files),
+        'total_records_input': total_records_input,
+        'total_records_valid': total_records_valid,
+        'total_records_invalid': total_records_invalid,
+        'total_records_pseudonymised': total_records_pseudonymised
+    }
+
+
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    try:
+        logger.info("Starting pseudonymisation pipeline execution")
+        env_vars = get_env_variables()
+
+        input_bucket = env_vars['INPUT_S3_BUCKET']
+        input_prefix = env_vars['INPUT_PREFIX']
+        output_bucket = env_vars['OUTPUT_S3_BUCKET']
+        lambda_function_name = env_vars['PSEUDONYMISATION_LAMBDA_FUNCTION_NAME']
+        kms_key_id = env_vars['KMS_KEY_ID']
+
+        summary = process_all_files(
+            input_bucket,
+            input_prefix,
+            output_bucket,
+            lambda_function_name,
+            kms_key_id
+        )
+
+        if summary['files_processed'] == 0:
+            message = "No CSV files found to process"
+            logger.warning(message)
+        else:
+            message = "Pseudonymisation pipeline executed successfully"
+            logger.info(f"{message}, Summary: {summary}")
+
+        return create_response(
+            message=message,
+            status_code=200,
+            **summary
+        )
+
+    except Exception as e:
+        logger.error(f"Pseudonymisation pipeline execution failed: {e}", exc_info=True)
+        return create_response(
+            message=f"Pseudonymisation pipeline execution failed: {str(e)}",
+            status_code=500
+        )

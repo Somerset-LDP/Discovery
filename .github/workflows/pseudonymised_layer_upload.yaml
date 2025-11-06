@@ -1,4 +1,4 @@
-name: Zip and Upload Cohort Lambda Files to S3
+name: Zip and Upload Pseudonymised layer Lambda Files to S3
 
 on:
   workflow_dispatch:

@@ -98,6 +98,7 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
     Raises:
         TypeError: If cohort_members is not a pandas Series.
     """
+
     logger = logging.getLogger(__name__)
     
     if not nhs_number or str(nhs_number).strip() == "":
@@ -111,6 +112,12 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
         return False
     
     try:
-        return str(nhs_number).strip() in cohort_members.astype(str).str.strip().values
+        cleaned_cohort_members = cohort_members.astype(str).str.strip().values
+        logger.debug(f"NHS number: {nhs_number}. Cohort: {cleaned_cohort_members}")
+        
+        is_cohort_member = str(nhs_number).strip() in cleaned_cohort_members
+        logger.debug(f"NHS number {nhs_number} is member of cohort: {is_cohort_member}")
+
+        return is_cohort_member
     except Exception as e:
         raise RuntimeError(f"Error checking cohort membership for NHS number {nhs_number}: {str(e)}")

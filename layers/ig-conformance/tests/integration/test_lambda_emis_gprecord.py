@@ -61,8 +61,8 @@ def test_files():
     fixtures_path = Path(__file__).parent.parent / "fixtures"
 
     test_files = {
-        "valid_cohort": str(fixtures_path / "cohort_data" / "valid_cohort.csv"),
-        "empty_cohort": str(fixtures_path / "cohort_data" / "empty_file.csv"),
+        "valid_cohort": str(fixtures_path / "cohort_data" / "emis_patients.csv"),
+        "empty_cohort": str(fixtures_path / "cohort_data" / "completely_empty.csv"),
         "valid_gp_records": str(fixtures_path / "gp_data" / "emis_three_patients.csv"),
         "empty_gp_records": str(fixtures_path / "gp_data" / "emis_zero_patients.csv"),
     }

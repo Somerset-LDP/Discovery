@@ -4,13 +4,13 @@ import pandas as pd
 from typing import TextIO
 import logging
 
-def read_file(path: str) -> pd.DataFrame:
+def read_file(path: str, header: int | None = 0) -> pd.DataFrame:
     with fsspec.open(path, mode="r", encoding="utf-8") as file:
         if isinstance(file, list):
             raise ValueError(f"Expected one file, got {len(file)}: {path}")
 
         # Read CSV with all columns as strings to preserve leading zeros and handle data consistently
-        df = pd.read_csv(file, dtype=str, keep_default_na=False, na_values=['', 'NULL', 'null', 'None'])
+        df = pd.read_csv(file, dtype=str, keep_default_na=False, na_values=['', 'NULL', 'null', 'None'], header=header)
 
     return df
 

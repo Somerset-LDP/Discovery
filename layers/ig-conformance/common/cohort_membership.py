@@ -29,7 +29,7 @@ def read_cohort_members(location: str) -> pd.Series:
     """ 
     try:
         # Read CSV with nhs column as string to preserve leading zeros
-        df = read_file(location)
+        df = read_file(location, header=None)
 
         if df.empty:
             raise ValueError(f"No data found in cohort file")
@@ -45,7 +45,7 @@ def read_cohort_members(location: str) -> pd.Series:
         valid_nhs = nhs_numbers[~pd.isna(nhs_numbers)]
         valid_nhs = valid_nhs[valid_nhs.str.strip() != '']
         valid_nhs = valid_nhs[valid_nhs.str.strip().str.lower() != 'nan']
-        
+
         if valid_nhs.empty:
             raise ValueError(f"No valid NHS numbers found")
         
@@ -101,6 +101,9 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
 
     logger = logging.getLogger(__name__)
 
+    if not isinstance(cohort_members, pd.Series):
+        raise TypeError("cohort_members must be a pandas Series")
+    
     logger.debug(f"About to check if NHS number {nhs_number} is in the cohort with the following members (member count:{len(cohort_members)}) -")
     for member in cohort_members:
         logger.debug(f"cohort member - {member}")
@@ -109,8 +112,6 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
         logger.warning(f"NHS number is None or empty, returning False for cohort membership check")
         return False
     
-    if not isinstance(cohort_members, pd.Series):
-        raise TypeError("cohort_members must be a pandas Series")
         
     if cohort_members.empty:
         return False

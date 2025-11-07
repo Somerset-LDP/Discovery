@@ -72,5 +72,6 @@ docker buildx build \
 * `OUTPUT_DB_NAME` - the name of the database to connect to (defaults to ldp)
 * `OUTPUT_DB_USERNAME_SECRET` - the name of the secret holding the output database username eg canonical_layer/db_user_name
 * `OUTPUT_DB_PASSWORD_SECRET` - the name of the secret holding the output database password eg canonical_layer/db_user_password
+* `LOG_LEVEL` - an optional variable that alters the default log level of `INFO`. You must supply a valid log level for the Python logging library i.e. `CRITICAL`, `FATAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`
 
 For testing the `OUTPUT_DB_USERNAME` and `OUTPUT_DB_USERNAME` variables can be set instead of the `*_SECRET` equivalents but this is not recommended for production

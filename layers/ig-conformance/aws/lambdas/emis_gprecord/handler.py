@@ -2,16 +2,13 @@ from datetime import datetime
 import json
 import logging
 import os
-from sys import path
-from unittest import result
-from urllib import response
 import fsspec
 import fsspec.utils
 import pandas as pd
-from typing import Any, List, Dict, cast, Tuple
+from typing import Any, List, Dict, Tuple
 from pipeline.emis_gprecord import run
 from common.cohort_membership import read_cohort_members
-from common.filesystem import read_file, delete_file
+from common.filesystem import delete_file
 import boto3
 import json
 

@@ -68,5 +68,6 @@ docker buildx build \
 * `OUTPUT_LOCATION` - path to the root output dir. The pipeline will write its output file under this dir.
 * `PSEUDONYMISATION_LAMBDA_FUNCTION_NAME` - the name of the Pseudonymisation Lambda that the IG conformance pipeline will use as part of the cohort checking step
 * `KMS_KEY_ID` - the ARN of the KMS encryption key used when writing to the `OUTPUT_LOCATION`. 
+* `LOG_LEVEL` - an optional variable that alters the default log level of `INFO`. You must supply a valid log level for the Python logging library i.e. `CRITICAL`, `FATAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`
 
 For testing the `SKIP_ENCRYPTION` variable can be set to avoid calling out to the Psuedonymisation service. This is not recommended for production

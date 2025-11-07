@@ -103,24 +103,17 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
 
     if not isinstance(cohort_members, pd.Series):
         raise TypeError("cohort_members must be a pandas Series")
-    
-    logger.debug(f"About to check if NHS number {nhs_number} is in the cohort with the following members (member count:{len(cohort_members)}) -")
-    for member in cohort_members:
-        logger.debug(f"cohort member - {member}")
-    
+        
     if not nhs_number or str(nhs_number).strip() == "":
         logger.warning(f"NHS number is None or empty, returning False for cohort membership check")
         return False
-    
         
     if cohort_members.empty:
         return False
     
     try:
         cleaned_cohort_members = cohort_members.astype(str).str.strip().values
-        logger.debug(f"About to check if NHS number {nhs_number} is in the cohort with the following members (member count:{len(cleaned_cohort_members)}) -")
-        for member in cleaned_cohort_members:
-            logger.debug(f"cleaned cohort member - {member}")
+        logger.debug(f"About to check if NHS number {nhs_number} is in the cohort with {len(cleaned_cohort_members)} members")
         
         is_cohort_member = str(nhs_number).strip() in cleaned_cohort_members
         logger.debug(f"NHS number {nhs_number} is member of cohort: {is_cohort_member}")

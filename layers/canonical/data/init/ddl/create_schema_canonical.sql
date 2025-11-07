@@ -17,7 +17,7 @@
         nhs_number TEXT NOT NULL, 
         given_name TEXT NOT NULL,
         family_name TEXT NOT NULL,
-        date_of_birth DATE NOT NULL,
+        date_of_birth TEXT NOT NULL,
         postcode TEXT NOT NULL,
         sex TEXT,
         height_cm  NUMERIC(5,2),
@@ -32,6 +32,8 @@
 -- First drop the user if it exists to avoid conflicts
 DROP ROLE IF EXISTS canonical_writer;
 CREATE ROLE canonical_writer WITH LOGIN PASSWORD :'user_password';
+
+GRANT CONNECT ON DATABASE ldp TO canonical_writer;
 
 GRANT USAGE ON SCHEMA "canonical" TO canonical_writer;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "canonical" TO canonical_writer;

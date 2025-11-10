@@ -208,12 +208,7 @@ def _get_output_dir(location: str) -> str | None:
 
     try:
         protocol = fsspec.utils.get_protocol(location)
-        #fs = fsspec.filesystem(protocol)
-
-        fs = s3fs.S3FileSystem(client_kwargs = {
-                                "ServerSideEncryption": "aws:kms",
-                                "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
-                            })        
+        fs = fsspec.filesystem(protocol)
 
         if not fs.exists(location):
             raise IOError(f"Output location {location} does not exist.")

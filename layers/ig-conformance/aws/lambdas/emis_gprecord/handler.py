@@ -143,7 +143,7 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
 
     logger.info(f"Writing {len(records)} records to: {file_path}")
 
-    fs = s3fs.S3FileSystem(s3_additional_kwargs={
+    fs = s3fs.S3FileSystem(client_kwargs = {
                              "ServerSideEncryption": "aws:kms",
                              "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
                          })
@@ -174,8 +174,6 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
                 # If no records, still write column headers
                 file.write(','.join(records.columns) + '\n')
 
-            file.flush()
-        
         logger.info(f"Successfully wrote {len(records)} records to {file_path}")
     except Exception as e:
         logger.error(f"Failed to write GP records to {file_path}: {str(e)}", exc_info=True)

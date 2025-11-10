@@ -208,7 +208,12 @@ def _get_output_dir(location: str) -> str | None:
 
     try:
         protocol = fsspec.utils.get_protocol(location)
-        fs = fsspec.filesystem(protocol)
+        #fs = fsspec.filesystem(protocol)
+
+        fs = s3fs.S3FileSystem(client_kwargs = {
+                                "ServerSideEncryption": "aws:kms",
+                                "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
+                            })        
 
         if not fs.exists(location):
             raise IOError(f"Output location {location} does not exist.")
@@ -251,7 +256,12 @@ def _get_output_file(dir_path: str, file_name_prefix: str) -> str | None:
 
     try:
         protocol = fsspec.utils.get_protocol(dir_path)
-        fs = fsspec.filesystem(protocol)
+        #fs = fsspec.filesystem(protocol)
+
+        fs = s3fs.S3FileSystem(client_kwargs = {
+                             "ServerSideEncryption": "aws:kms",
+                             "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
+                         })        
 
         logging.info(f"Creating output file under {dir_path} using fsspec filesystem for protocol {protocol}")
 

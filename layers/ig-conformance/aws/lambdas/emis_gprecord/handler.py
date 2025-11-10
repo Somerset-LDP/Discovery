@@ -173,6 +173,8 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
             else:
                 # If no records, still write column headers
                 file.write(','.join(records.columns) + '\n')
+
+            file.flush()
         
         logger.info(f"Successfully wrote {len(records)} records to {file_path}")
     except Exception as e:

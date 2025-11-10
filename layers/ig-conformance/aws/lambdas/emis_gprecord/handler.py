@@ -4,6 +4,7 @@ import logging
 import os
 import fsspec
 import fsspec.utils
+import s3fs
 import pandas as pd
 from typing import Any, List, Dict, Tuple
 from pipeline.emis_gprecord import run
@@ -124,16 +125,22 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
 
     logger.info(f"Writing {len(records)} records to: {file_path}")
 
-    fs = fsspec.filesystem(fsspec.utils.get_protocol(file_path),     
-                           s3_additional_kwargs={
-                                "ServerSideEncryption": "aws:kms",
-                                "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
-    })
+    fs = s3fs.S3FileSystem()
+
+    #fs = fsspec.filesystem(fsspec.utils.get_protocol(file_path),     
+    #                       s3_additional_kwargs={
+    #                            "ServerSideEncryption": "aws:kms",
+    #                            "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
+    #})
 
     try:
         with fs.open(file_path, 
                          mode="w", 
-                         encoding="utf-8"
+                         encoding="utf-8",
+                         s3_additional_kwargs={
+                             "ServerSideEncryption": "aws:kms",
+                             "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
+                         }
         ) as file:
             # Check if file is a list (shouldn't happen with single file path, but fsspec can be unpredictable)
             if isinstance(file, list):

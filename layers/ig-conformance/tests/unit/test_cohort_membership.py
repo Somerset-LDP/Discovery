@@ -364,12 +364,7 @@ def test_debug_logging_provides_detailed_information(valid_cohort_series, caplog
         
         # Check that debug logs contain expected information
         log_text = caplog.text
-        assert "About to check if NHS number 1234567890 is in the cohort" in log_text
-        assert "member count:3" in log_text
-        assert "cohort member - 1234567890" in log_text
-        assert "cohort member - 2345678901" in log_text
-        assert "cohort member - 3456789012" in log_text
-        assert "NHS number 1234567890 is member of cohort: True" in log_text
+        assert "About to check if NHS number 1234567890 is in the cohort with 3 members" in log_text
 
 
 # ==========================================

@@ -113,7 +113,25 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
     Args:
         records: List of record dictionaries to write
         location: Output file location (local path or S3 URL)
-    """
+    """    
+    s3fs_logger = logging.getLogger('s3fs')
+    s3fs_logger.setLevel(logging.DEBUG)
+    
+    boto3_logger = logging.getLogger('boto3')
+    boto3_logger.setLevel(logging.DEBUG)
+    
+    botocore_logger = logging.getLogger('botocore')
+    botocore_logger.setLevel(logging.DEBUG)
+
+    # Also enable debug for urllib3 to see HTTP requests
+    urllib3_logger = logging.getLogger('urllib3')
+    urllib3_logger.setLevel(logging.DEBUG)
+
+    # Enable boto3 event debugging to see exactly what parameters are passed
+    import boto3
+    boto3.set_stream_logger('boto3.resources', logging.DEBUG)
+    boto3.set_stream_logger('botocore', logging.DEBUG)    
+    
     parent_dir = _get_output_dir(location)
     if not parent_dir:
         raise IOError(f"Failed to determine output directory under location: {location}")
@@ -138,7 +156,7 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
 
     try:
         with fs.open(file_path, 
-                         mode="w", 
+                         mode="wb", 
                          encoding="utf-8"
         ) as file:
             # Check if file is a list (shouldn't happen with single file path, but fsspec can be unpredictable)
@@ -160,6 +178,12 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
     except Exception as e:
         logger.error(f"Failed to write GP records to {file_path}: {str(e)}", exc_info=True)
         raise IOError(f"Failed to write GP records to {file_path}: {str(e)}")    
+    finally:
+        # Reset log levels to avoid flooding other operations
+        s3fs_logger.setLevel(logging.INFO)
+        boto3_logger.setLevel(logging.INFO)
+        botocore_logger.setLevel(logging.INFO)
+        urllib3_logger.setLevel(logging.INFO)    
 
     return file_path
 

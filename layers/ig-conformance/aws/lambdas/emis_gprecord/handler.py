@@ -156,8 +156,7 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
 
     try:
         with fs.open(file_path, 
-                         mode="wb", 
-                         encoding="utf-8"
+                         mode="w"
         ) as file:
             # Check if file is a list (shouldn't happen with single file path, but fsspec can be unpredictable)
             if isinstance(file, list):

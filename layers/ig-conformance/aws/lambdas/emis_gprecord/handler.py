@@ -249,31 +249,35 @@ def _get_output_file(dir_path: str, file_name_prefix: str) -> str | None:
     """
     file_path = None
 
-    try:
-        protocol = fsspec.utils.get_protocol(dir_path)
-        #fs = fsspec.filesystem(protocol)
+    timestamp = datetime.now().strftime("%H%M%S")
+    filename = f"gp_records_{timestamp}.csv"
+    file_path = f"{dir_path}/{filename}"    
 
-        fs = s3fs.S3FileSystem(s3_additional_kwargs= {
-                             "ServerSideEncryption": "aws:kms",
-                             "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
-                         })        
+    # try:
+    #     protocol = fsspec.utils.get_protocol(dir_path)
+    #     #fs = fsspec.filesystem(protocol)
+
+    #     fs = s3fs.S3FileSystem(s3_additional_kwargs= {
+    #                          "ServerSideEncryption": "aws:kms",
+    #                          "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
+    #                      })        
     
-        logging.info(f"Creating output file under {dir_path} using fsspec filesystem for protocol {protocol}")
+    #     logging.info(f"Creating output file under {dir_path} using fsspec filesystem for protocol {protocol}")
 
-        timestamp = datetime.now().strftime("%H%M%S")
-        filename = f"gp_records_{timestamp}.csv"
-        file_path = f"{dir_path}/{filename}"
+    #     timestamp = datetime.now().strftime("%H%M%S")
+    #     filename = f"gp_records_{timestamp}.csv"
+    #     file_path = f"{dir_path}/{filename}"
 
-        try:
-            fs.touch(file_path, exist_ok=True)
-            logging.info(f"Generated output file path: {file_path}")
-        except Exception as e:
-            logging.info(f"Failed to create output file at {file_path}: {e}")
-            logging.error(f"Failed to create output file at {file_path}: {e}")
-            raise IOError(f"Failed to create output file at {file_path}: {e}") 
-    except Exception as e:
-        logging.error(f"Error creating output file at {file_path}: {e}")
-        raise IOError(f"Failed to generate output file at {file_path}: {e}")
+    #     try:
+    #         fs.touch(file_path, exist_ok=True)
+    #         logging.info(f"Generated output file path: {file_path}")
+    #     except Exception as e:
+    #         logging.info(f"Failed to create output file at {file_path}: {e}")
+    #         logging.error(f"Failed to create output file at {file_path}: {e}")
+    #         raise IOError(f"Failed to create output file at {file_path}: {e}") 
+    # except Exception as e:
+    #     logging.error(f"Error creating output file at {file_path}: {e}")
+    #     raise IOError(f"Failed to generate output file at {file_path}: {e}")
 
     return file_path
 

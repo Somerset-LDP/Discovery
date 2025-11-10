@@ -253,11 +253,11 @@ def _get_output_file(dir_path: str, file_name_prefix: str) -> str | None:
         protocol = fsspec.utils.get_protocol(dir_path)
         #fs = fsspec.filesystem(protocol)
 
-        fs = s3fs.S3FileSystem(client_kwargs = {
+        fs = s3fs.S3FileSystem(s3_additional_kwargs= {
                              "ServerSideEncryption": "aws:kms",
                              "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
                          })        
-
+    
         logging.info(f"Creating output file under {dir_path} using fsspec filesystem for protocol {protocol}")
 
         timestamp = datetime.now().strftime("%H%M%S")

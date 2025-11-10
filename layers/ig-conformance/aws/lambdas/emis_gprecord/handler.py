@@ -125,7 +125,10 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
 
     logger.info(f"Writing {len(records)} records to: {file_path}")
 
-    fs = s3fs.S3FileSystem()
+    fs = s3fs.S3FileSystem(s3_additional_kwargs={
+                             "ServerSideEncryption": "aws:kms",
+                             "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
+                         })
 
     #fs = fsspec.filesystem(fsspec.utils.get_protocol(file_path),     
     #                       s3_additional_kwargs={
@@ -136,11 +139,7 @@ def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location:
     try:
         with fs.open(file_path, 
                          mode="w", 
-                         encoding="utf-8",
-                         s3_additional_kwargs={
-                             "ServerSideEncryption": "aws:kms",
-                             "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
-                         }
+                         encoding="utf-8"
         ) as file:
             # Check if file is a list (shouldn't happen with single file path, but fsspec can be unpredictable)
             if isinstance(file, list):

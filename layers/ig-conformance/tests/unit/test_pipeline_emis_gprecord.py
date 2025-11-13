@@ -460,45 +460,31 @@ def test_duplicate_nhs_numbers_in_records(sample_cohort_store):
 
 
 # Cohort Membership Check Scenarios (29-33)
-@patch('pipeline.emis_gprecord.is_cohort_member')
-def test_cohort_membership_check_returns_true(mock_is_cohort_member, sample_cohort_store):
+def test_cohort_membership_check_returns_true(sample_cohort_store):
     """Test NHS number found in cohort store"""
-    mock_is_cohort_member.return_value = True
     
+    # The mock_encrypt function returns input unchanged
+    # So '1234567890' will be "encrypted" to '1234567890'
+    # Use the default sample_cohort_store which contains '1234567890'
     records = [{'nhs_number': '1234567890', 'ethnicity': 'White'}]
     
     result = run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt)
     
-    # Should return the record since mock says it's a cohort member
+    # Should return the record since NHS number is in cohort
     assert len(result) == 1
     assert result.iloc[0]['nhs_number'] == '1234567890' and result.iloc[0]['ethnicity'] == 'White'
-    mock_is_cohort_member.assert_called_once()
 
 
-@patch('pipeline.emis_gprecord.is_cohort_member')
-def test_cohort_membership_check_returns_false(mock_is_cohort_member, sample_cohort_store):
+def test_cohort_membership_check_returns_false(sample_cohort_store):
     """Test NHS number not found in cohort store"""
-    mock_is_cohort_member.return_value = False
     
+    # Use an NHS number that's not in the sample_cohort_store
     records = [{'nhs_number': '9999999999', 'ethnicity': 'White'}]
     
     result = run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt)
     
-    # Should return no records since mock says it's not a cohort member
+    # Should return no records since NHS number is not in cohort
     assert len(result) == 0
-    assert len(result) == 0
-    mock_is_cohort_member.assert_called_once()
-
-
-@patch('pipeline.emis_gprecord.is_cohort_member')
-def test_cohort_membership_check_raises_exception(mock_is_cohort_member, sample_cohort_store):
-    """Test error in cohort membership validation"""
-    mock_is_cohort_member.side_effect = Exception("Cohort check failed")
-    
-    records = [{'nhs_number': '1234567890', 'ethnicity': 'White'}]
-    
-    with pytest.raises(Exception, match="Cohort check failed"):
-        run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt)
 
 
 def test_case_sensitivity_in_nhs_numbers():
@@ -759,33 +745,3 @@ def test_encrypt_function_returns_none_handling(sample_cohort_store):
     
     # Verify encrypt was called once with the batch
     assert mock_encrypt_none.call_count == 1
-
-
-# Test 9: Test encrypt function called before cohort membership check
-def test_encrypt_function_called_before_cohort_membership_check(sample_cohort_store):
-    """Test encrypt function is called before cohort membership check - correct sequence"""
-    from unittest.mock import MagicMock, patch
-    
-    call_sequence = []
-    
-    def track_encrypt(field_name, values):
-        call_sequence.append(f"encrypt:{field_name}:{values}")
-        return values
-    
-    def track_cohort_check(encrypted_nhs, cohort_store):
-        call_sequence.append(f"cohort_check:{encrypted_nhs}")
-        return encrypted_nhs in cohort_store.values
-    
-    mock_encrypt = MagicMock(side_effect=track_encrypt)
-    
-    with patch('pipeline.emis_gprecord.is_cohort_member', side_effect=track_cohort_check):
-        records = [
-            {'nhs_number': '1234567890', 'ethnicity': 'White'},
-        ]
-        
-        result = run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt)
-        
-        # Verify the sequence: encrypt should be called before cohort membership check
-        assert len(call_sequence) == 2
-        assert call_sequence[0] == "encrypt:nhs_number:['1234567890']"
-        assert call_sequence[1] == "cohort_check:1234567890"

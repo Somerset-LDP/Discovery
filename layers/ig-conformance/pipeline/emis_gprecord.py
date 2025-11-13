@@ -1,7 +1,6 @@
 import pandas as pd
-from typing import Any, List, Dict, Callable
+from typing import List, Dict, Callable
 import logging
-from common.cohort_membership import is_cohort_member
 
 # Column position constants based on the header row
 NHS_NUMBER_COL = 0
@@ -37,13 +36,18 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
     encrypted_mapping = _batch_encrypt_nhs_numbers(unique_nhs_numbers, encrypt)
     
     # Step 4: Filter records - keep ALL records where the NHS number is in cohort
+    cohort_set = set()
+    if not cohort_store.empty:
+        # Clean and normalize cohort member NHS numbers once
+        cohort_set = set(cohort_store.astype(str).str.strip().values)    
+    
     filtered_records = []
     cohort_nhs_numbers = set()  # Track which NHS numbers are in cohort for logging
-    
+
     for record, nhs_number in zip(valid_records, nhs_numbers_for_records):
         encrypted_nhs = encrypted_mapping.get(nhs_number)
         if encrypted_nhs:
-            if is_cohort_member(encrypted_nhs, cohort_store):
+            if encrypted_nhs.strip() in cohort_set:
                 filtered_records.append(record)
                 cohort_nhs_numbers.add(nhs_number)
             # Note: We don't log per-record here to avoid spam, we'll log summary below

@@ -263,7 +263,7 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
     Returns:
         List[str] | None: List of encrypted values, or None if encryption fails
     """
-    encrypted_values = None
+    encrypted_chunks = None
 
     skip_encryption = os.getenv("SKIP_ENCRYPTION")
 
@@ -287,7 +287,51 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
         logger.warning(f"No valid values in list for field: {field_name}")
         return None
     
-    logger.info(f"Batch encrypting {len(valid_values)} values for field: {field_name}")
+    # Determine chunk size to stay under Lambda payload limits
+    # ~10000 values per chunk to stay well under 6MB limit
+    chunk_size = int(os.getenv("PSEUDONYMISATION_BATCH_SIZE", "10000"))
+
+    if len(valid_values) <= chunk_size:
+        # Small batch, process normally
+        encrypted_chunks = _encrypt_chunk(field_name, valid_values)   
+    else:
+        # Large batch, process in chunks
+        logger.info(f"Large batch detected ({len(valid_values)} values). Processing in chunks of {chunk_size}")
+        
+        encrypted_chunks = []
+        total_chunks = (len(valid_values) + chunk_size - 1) // chunk_size  # Ceiling division
+        
+        for i in range(0, len(valid_values), chunk_size):
+            chunk = valid_values[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            
+            logger.info(f"Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} values)")
+            
+            encrypted_chunk = _encrypt_chunk(field_name, chunk)
+            if encrypted_chunk is None:
+                logger.error(f"Failed to encrypt chunk {chunk_num}")
+                raise ValueError(f"Batch encryption failed on chunk {chunk_num}")
+            
+            encrypted_chunks.extend(encrypted_chunk)
+        
+        logger.info(f"Successfully processed all {total_chunks} chunks ({len(encrypted_chunks)} total encrypted values)")
+
+    return encrypted_chunks  
+
+def _encrypt_chunk(field_name: str, values: List[str]) -> List[str] | None:
+    """
+    Encrypt a single chunk of values.
+    
+    Args:
+        field_name: The name of the field being encrypted
+        values: List of values to encrypt (should be <= CHUNK_SIZE)
+        
+    Returns:
+        List[str] | None: List of encrypted values, or None if encryption fails
+    """
+    encrypted_values = None
+
+    logger.info(f"Batch encrypting {len(values)} values for field: {field_name}")
 
     function_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
     if not function_name:
@@ -302,7 +346,7 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
             Payload=json.dumps({
                 'action': 'encrypt',
                 'field_name': field_name,
-                'field_value': valid_values
+                'field_value': values
             })
         )
 
@@ -310,17 +354,21 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
         if 'error' in result:   
             logger.error(f"Encryption service returned error: {result['error']}")
             raise ValueError(f"Encryption service error: {result['error']}")
+        elif 'errorMessage' in result:
+            # Handle Lambda execution errors
+            logger.error(f"Lambda execution error: {result['errorMessage']}")
+            raise ValueError(f"Lambda execution error: {result['errorMessage']}")
         elif 'field_value' not in result:
             logger.error(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
             raise ValueError(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
     
         encrypted_values = result['field_value']
         
-        if not isinstance(encrypted_values, list) or len(encrypted_values) != len(valid_values):
-            logger.error(f"Encryption service returned unexpected format: expected list of {len(valid_values)} values, got {type(encrypted_values)}")
-            raise ValueError(f"Encryption service returned unexpected format: expected list of {len(valid_values)} values")
+        if not isinstance(encrypted_values, list) or len(encrypted_values) != len(values):
+            logger.error(f"Encryption service returned unexpected format: expected list of {len(values)} values, got {type(encrypted_values)}")
+            raise ValueError(f"Encryption service returned unexpected format: expected list of {len(values)} values")
         
-        logger.info(f"Successfully batch encrypted {len(valid_values)} values for field: {field_name}")
+        logger.info(f"Successfully batch encrypted {len(values)} values for field: {field_name}")
 
     except ValueError as e:
         # Re-raise ValueError (malformed response) to propagate up the call chain
@@ -330,69 +378,3 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
         raise
 
     return encrypted_values
-
-# This function deliberately does not include 
-# - network/timeout handling - Network issues not handled
-# - retry logic - Single attempt only
-def _encrypt_old(field_name: str, value: str) -> str | None:
-    """
-    Encrypt a value for the given field name.
-    
-    Args:
-        value: The value to encrypt
-        field_name: The name of the field being encrypted
-        
-    Returns:
-        str: The encrypted value
-    """
-    encrypted_value = None
-
-    skip_encryption = os.getenv("SKIP_ENCRYPTION")
-
-    if skip_encryption:
-        logger.info(f"Skipping encryption for field: {field_name}")
-        return value
-
-    if not field_name or not value or str(value).lower() in ['nan', 'none', 'null', '']:
-        logger.warning(f"Field name or value is None or empty, cannot encrypt")
-        return None
-    
-    logger.info(f"Encrypting value for field: {field_name}")
-
-    function_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
-    if not function_name:
-        logger.error("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
-        raise ValueError("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
-
-    try:
-        # Encrypt a single value
-        lambda_client = boto3.client('lambda')    
-        response = lambda_client.invoke(
-            FunctionName=function_name,
-            InvocationType='RequestResponse',
-            Payload=json.dumps({
-                'action': 'encrypt',
-                'field_name': field_name,
-                'field_value': value
-            })
-        )
-
-        # check if there is an "error" key in the response
-        result = json.loads(response['Payload'].read())
-        if 'error' in result:   
-            logger.error(f"Encryption service returned error: {result['error']}")
-        elif 'field_value' not in result:
-            logger.error(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
-            raise ValueError(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
-    
-        encrypted_value = result['field_value']        
-        logger.info(f"Encrypted value for field:{field_name}")
-
-    except ValueError as e:
-        # Re-raise ValueError (malformed response) to propagate up the call chain
-        raise
-    except Exception as e:
-        logger.error(f"Exception occurred while encrypting value for field: {field_name}: {str(e)}", exc_info=True)
-        raise
-
-    return encrypted_value

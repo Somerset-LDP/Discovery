@@ -252,7 +252,89 @@ def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> 
 # This function deliberately does not include 
 # - network/timeout handling - Network issues not handled
 # - retry logic - Single attempt only
-def _encrypt(field_name: str, value: str) -> str | None:
+def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
+    """
+    Encrypt a list of values for the given field name.
+    
+    Args:
+        field_name: The name of the field being encrypted
+        values: List of values to encrypt
+        
+    Returns:
+        List[str] | None: List of encrypted values, or None if encryption fails
+    """
+    encrypted_values = None
+
+    skip_encryption = os.getenv("SKIP_ENCRYPTION")
+
+    if skip_encryption:
+        logger.info(f"Skipping encryption for field: {field_name}")
+        return values
+
+    if not field_name:
+        logger.warning(f"Field name is None or empty, cannot encrypt")
+        return None
+        
+    if not values or len(values) == 0:
+        logger.warning(f"Values list is None or empty for field: {field_name}")
+        return None
+    
+    # Filter out invalid values
+    valid_values = [v for v in values if v and str(v).lower() not in ['nan', 'none', 'null', '']]
+    if len(valid_values) != len(values):
+        logger.warning(f"Filtered out {len(values) - len(valid_values)} invalid values from list for field: {field_name}")
+    if not valid_values:
+        logger.warning(f"No valid values in list for field: {field_name}")
+        return None
+    
+    logger.info(f"Batch encrypting {len(valid_values)} values for field: {field_name}")
+
+    function_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
+    if not function_name:
+        logger.error("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
+        raise ValueError("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
+
+    try:
+        lambda_client = boto3.client('lambda')    
+        response = lambda_client.invoke(
+            FunctionName=function_name,
+            InvocationType='RequestResponse',
+            Payload=json.dumps({
+                'action': 'encrypt',
+                'field_name': field_name,
+                'field_value': valid_values
+            })
+        )
+
+        result = json.loads(response['Payload'].read())
+        if 'error' in result:   
+            logger.error(f"Encryption service returned error: {result['error']}")
+            raise ValueError(f"Encryption service error: {result['error']}")
+        elif 'field_value' not in result:
+            logger.error(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+            raise ValueError(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+    
+        encrypted_values = result['field_value']
+        
+        if not isinstance(encrypted_values, list) or len(encrypted_values) != len(valid_values):
+            logger.error(f"Encryption service returned unexpected format: expected list of {len(valid_values)} values, got {type(encrypted_values)}")
+            raise ValueError(f"Encryption service returned unexpected format: expected list of {len(valid_values)} values")
+        
+        logger.info(f"Successfully batch encrypted {len(valid_values)} values for field: {field_name}")
+
+    except ValueError as e:
+        # Re-raise ValueError (malformed response) to propagate up the call chain
+        raise
+    except Exception as e:
+        logger.error(f"Exception occurred while batch encrypting values for field: {field_name}: {str(e)}", exc_info=True)
+        raise
+
+    return encrypted_values
+
+# This function deliberately does not include 
+# - network/timeout handling - Network issues not handled
+# - retry logic - Single attempt only
+def _encrypt_old(field_name: str, value: str) -> str | None:
     """
     Encrypt a value for the given field name.
     

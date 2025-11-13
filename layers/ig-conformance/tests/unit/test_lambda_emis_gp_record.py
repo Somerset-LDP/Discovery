@@ -699,7 +699,7 @@ def test_encryption_service_response_parsing(sample_event, sample_context):
         # Mock response with properly structured encryption service response
         encryption_response = {
             'field_name': 'nhs_number',
-            'field_value': 'encrypted_nhs_123',
+            'field_value': ['encrypted_nhs_123'],
             'status': 'success'
         }
         mock_payload.read.return_value = json.dumps(encryption_response).encode()

@@ -16,9 +16,9 @@ def _ensure_nhs_first(records):
     return df
 
 # Mock encrypt function for testing
-def mock_encrypt(field_name: str, value: str) -> str:
+def mock_encrypt(field_name: str, values: list[str]) -> list[str]:
     """Mock encrypt function that just returns the raw input value"""
-    return value
+    return values
 
 
 # Fixtures
@@ -642,24 +642,21 @@ def test_encrypt_function_called_for_each_processed_record(sample_cohort_store):
     # Should have processed both records
     assert len(result) == 2
     
-    # Should have called encrypt for each non-nhs_number field
-    expected_calls = [
-        ('nhs_number', '1234567890'),
-        ('nhs_number', '2345678901')
-    ]
-    
-    for expected_call in expected_calls:
-        assert expected_call in call_log, f"Missing encryption call: {expected_call}"
+    # Should have called encrypt once with both NHS numbers as a batch (order doesn't matter)
+    assert len(call_log) == 1, f"Expected 1 encrypt call, got {len(call_log)}"
+    field_name, nhs_numbers = call_log[0]
+    assert field_name == 'nhs_number'
+    assert set(nhs_numbers) == {'1234567890', '2345678901'}, f"Expected both NHS numbers in batch, got {nhs_numbers}"
 
 # Test 4: Test encrypt function raises exceptions
 def test_encrypt_function_raises_exceptions_handled_gracefully(sample_cohort_store):
     """Test encrypt function raises exceptions - pipeline handles encryption failures gracefully"""
     from unittest.mock import MagicMock
     
-    def failing_encrypt(field_name, value):
-        if value == '1234567890':
+    def failing_encrypt(field_name, values):
+        if '1234567890' in values:
             raise Exception("Encryption service unavailable")
-        return str(value)
+        return [str(value) for value in values]
     
     mock_encrypt_with_failure = MagicMock(side_effect=failing_encrypt)
     
@@ -686,11 +683,11 @@ def test_encrypt_function_called_once_per_valid_nhs_number(sample_cohort_store):
     from unittest.mock import MagicMock
     
     call_count = 0
-    def count_encrypt_calls(field_name, value):
+    def count_encrypt_calls(field_name, values):
         nonlocal call_count
         call_count += 1
         assert field_name == "nhs_number", f"Expected 'nhs_number', got '{field_name}'"
-        return str(value)
+        return values
     
     mock_encrypt_counter = MagicMock(side_effect=count_encrypt_calls)
     
@@ -704,9 +701,9 @@ def test_encrypt_function_called_once_per_valid_nhs_number(sample_cohort_store):
     
     result = run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt_counter)
     
-    # Should have called encrypt exactly twice (for the two valid NHS numbers)
-    assert call_count == 2, f"Expected 2 encrypt calls, got {call_count}"
-    assert mock_encrypt_counter.call_count == 2
+    # Should have called encrypt exactly once with batch of valid NHS numbers
+    assert call_count == 1, f"Expected 1 encrypt call (batch), got {call_count}"
+    assert mock_encrypt_counter.call_count == 1
 
 
 # Test 7: Test encrypt function with network timeout exceptions
@@ -715,10 +712,10 @@ def test_encrypt_function_with_network_timeout_exceptions(sample_cohort_store):
     from unittest.mock import MagicMock
     import socket
     
-    def network_timeout_encrypt(field_name, value):
-        if value == '1234567890':
+    def network_timeout_encrypt(field_name, values):
+        if '1234567890' in values:
             raise socket.timeout("Network timeout during encryption")
-        return str(value)
+        return values
     
     mock_encrypt_timeout = MagicMock(side_effect=network_timeout_encrypt)
     
@@ -728,14 +725,12 @@ def test_encrypt_function_with_network_timeout_exceptions(sample_cohort_store):
     ]
     
     # Test how pipeline handles network timeouts - should raise RuntimeError wrapping the original timeout
-    try:
-        result = run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt_timeout)
-        # Should not reach here because timeout should cause RuntimeError
-        assert False, "Expected RuntimeError to be raised due to network timeout"
-    except RuntimeError as e:
-        # Pipeline should wrap the timeout in a RuntimeError
-        assert "Failed to process GP records due to encryption service error" in str(e)
-        assert "Network timeout during encryption" in str(e)
+    with pytest.raises(RuntimeError) as exc_info:
+        run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt_timeout)
+    
+    # Pipeline should wrap the timeout in a RuntimeError
+    assert "Failed to process GP records due to batch encryption service error" in str(exc_info.value)
+    assert "Network timeout during encryption" in str(exc_info.value)
 
 
 # Test 8: Test encrypt function returns None handling
@@ -743,10 +738,10 @@ def test_encrypt_function_returns_none_handling(sample_cohort_store):
     """Test encrypt function returns None - pipeline handles failed encryption gracefully"""
     from unittest.mock import MagicMock
     
-    def conditional_encrypt(field_name, value):
-        if value == '1234567890':
+    def conditional_encrypt(field_name, values):  # Changed: values instead of value
+        if '1234567890' in values:  # Changed: check if NHS number is in the batch
             return None  # Encryption failed
-        return str(value)
+        return values  # Changed: return the list
     
     mock_encrypt_none = MagicMock(side_effect=conditional_encrypt)
     
@@ -755,14 +750,15 @@ def test_encrypt_function_returns_none_handling(sample_cohort_store):
         {'nhs_number': '2345678901', 'ethnicity': 'Asian'},  # Will succeed
     ]
     
-    result = run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt_none)
+    # Should raise RuntimeError because batch encryption returned None
+    with pytest.raises(RuntimeError) as exc_info:
+        run(sample_cohort_store, _ensure_nhs_first(records), mock_encrypt_none)
     
-    # Should only return the record where encryption succeeded
-    assert len(result) == 1
-    assert result.iloc[0]['nhs_number'] == '2345678901'
+    # Verify the error message mentions batch encryption failure
+    assert "Failed to process GP records due to batch encryption service error" in str(exc_info.value)
     
-    # Verify both encrypt calls were made
-    assert mock_encrypt_none.call_count == 2
+    # Verify encrypt was called once with the batch
+    assert mock_encrypt_none.call_count == 1
 
 
 # Test 9: Test encrypt function called before cohort membership check
@@ -772,9 +768,9 @@ def test_encrypt_function_called_before_cohort_membership_check(sample_cohort_st
     
     call_sequence = []
     
-    def track_encrypt(field_name, value):
-        call_sequence.append(f"encrypt:{field_name}:{value}")
-        return str(value)
+    def track_encrypt(field_name, values):
+        call_sequence.append(f"encrypt:{field_name}:{values}")
+        return values
     
     def track_cohort_check(encrypted_nhs, cohort_store):
         call_sequence.append(f"cohort_check:{encrypted_nhs}")
@@ -791,5 +787,5 @@ def test_encrypt_function_called_before_cohort_membership_check(sample_cohort_st
         
         # Verify the sequence: encrypt should be called before cohort membership check
         assert len(call_sequence) == 2
-        assert call_sequence[0] == "encrypt:nhs_number:1234567890"
+        assert call_sequence[0] == "encrypt:nhs_number:['1234567890']"
         assert call_sequence[1] == "cohort_check:1234567890"

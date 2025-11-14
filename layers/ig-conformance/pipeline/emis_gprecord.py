@@ -18,7 +18,7 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
     for index, record in records.iterrows():
         nhs_number = record.iloc[NHS_NUMBER_COL]
         if not nhs_number or str(nhs_number).lower() in ['nan', 'none', 'null', '']:
-            logger.warning(f"Record at index {index} has no NHS number: {record}")
+            logger.warning(f"Record at index {index} has no NHS number")
             continue
             
         # Clean NHS number (remove spaces)

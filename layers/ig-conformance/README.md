@@ -6,6 +6,29 @@ Data stored in the IG conformance layer is derived from raw data. In order for r
 
 Once the pipeline has finished processing a raw data set that data set is deleted from the LDP. Additionally the data stored in the IG conformance layer is expected to be short lived and to be deleted as soon as it has been processed by the next layer - [Pseudonymised](../pseudonymised//README.md)
 
+## Step Function Integration
+
+The Lambda is designed to be triggered by Step Functions with required event parameters:
+
+```json
+{
+  "input_path": "s3://bucket/path/to/input/file.csv",
+  "output_path": "s3://bucket/output",
+  "feed_type": "gp"
+}
+```
+
+**Parameters:**
+- `input_path` (required) - Full S3 path to input file
+- `output_path` (required) - Base S3 path for output files
+- `feed_type` (required) - Feed type: `gp` or `sft`
+
+**Feed differences:**
+- GP: NHS number in column 0, 2 metadata rows, metadata preserved in output
+- SFT: NHS number in column 1, no metadata rows, no metadata in output
+
+Output structure: `{output_path}/{feed_type}_feed/YYYY/MM/DD/original_filename.csv`
+
 ## Project strucutre
 ```
 ig-conformance/
@@ -43,7 +66,7 @@ docker buildx build \
 
 Smoke testing the image- 
 ```bash
-docker run -d --platform linux/amd64 -p 9000:8080 emis_gprecord:latest
+docker run -d --platform linux/amd64 -p 9000:8080 conformance_processor:latest
 
 curl "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{}'
 ```

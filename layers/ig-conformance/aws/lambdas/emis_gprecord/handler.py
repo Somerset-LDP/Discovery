@@ -1,12 +1,13 @@
 from datetime import datetime
-import json
 import logging
 import os
 import fsspec
 import fsspec.utils
 import pandas as pd
 from typing import Any, List, Dict, Tuple
-from pipeline.emis_gprecord import run
+
+from pipeline.conformance_processor import run
+from pipeline.feed_config import get_feed_config, FeedConfig
 from common.cohort_membership import read_cohort_members
 from common.filesystem import delete_file
 import boto3
@@ -22,7 +23,10 @@ def lambda_handler(event, context):
     AWS Lambda handler for GP pipeline processing
     
     Args:
-        event: Lambda event data (could contain S3 event, manual trigger, etc.)
+        event: Lambda event data with parameters:
+               - input_path: S3 path to input file
+               - output_path: S3 path for output directory
+               - feed_type: Type of feed ('gp' or 'sft')
         context: Lambda context object
         
     Returns:
@@ -31,148 +35,145 @@ def lambda_handler(event, context):
     response = {}
 
     try:
-        logger.info("Starting GP pipeline execution")
+        logger.info("Starting pipeline execution")
         logger.info(f"Event: {json.dumps(event, default=str)}")
 
-        # read the cohort store
+        input_path = event.get("input_path")
+        output_path = event.get("output_path")
+        feed_type = event.get("feed_type", "").lower()
+
+        if not input_path:
+            raise ValueError("Missing required parameter 'input_path' in event")
+        if not output_path:
+            raise ValueError("Missing required parameter 'output_path' in event")
+        if not feed_type:
+            raise ValueError("Missing required parameter 'feed_type' in event")
+
+        feed_config = get_feed_config(feed_type)
+
         cohort_store_location = os.getenv("COHORT_STORE")
-        gp_records_store_location = os.getenv("INPUT_LOCATION")
-        output_location = os.getenv("OUTPUT_LOCATION")
         pseudo_service_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
-        if cohort_store_location and gp_records_store_location and output_location and pseudo_service_name:
-            metadata_rows, gp_records = _read_gp_records(gp_records_store_location)
-            cohort_store = read_cohort_members(cohort_store_location)
 
-            cohort_member_records = run(cohort_store, gp_records, _encrypt)
-            logger.debug(f"Processed {len(gp_records)} records, filtered to {len(cohort_member_records)} records.")
+        if not cohort_store_location:
+            raise ValueError("Missing required environment variable: COHORT_STORE")
+        if not pseudo_service_name:
+            raise ValueError("Missing required environment variable: PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
 
-            # TODO - need to keep first three rows
-            output_file = _write_output(cohort_member_records, metadata_rows, output_location)
-            delete_file(gp_records_store_location)
+        logger.info(
+            f"Processing {feed_config.feed_type.upper()} feed")
 
-            logger.info("GP pipeline executed successfully")
+        metadata_rows, records = _read_records(input_path, feed_config.metadata_rows_to_skip)
+        cohort_store = read_cohort_members(cohort_store_location)
 
-            response = _get_response(
-                message='GP pipeline executed successfully',
-                request_id=context.aws_request_id,
-                status_code=200,
-                records_processed=len(gp_records),
-                records_retained=len(cohort_member_records),
-                output_file=output_file
-            )
-    
-        else:
-            response = _get_response(
-                message='Missing one or more of the required environment variables - COHORT_STORE, INPUT_LOCATION, OUTPUT_LOCATION, PSEUDONYMISATION_LAMBDA_FUNCTION_NAME',
-                request_id=context.aws_request_id,
-                status_code=400
-            )
+        cohort_member_records = run(cohort_store, records, _encrypt, feed_config)
+        logger.debug(f"Processed {len(records)} records, filtered to {len(cohort_member_records)} records.")
+
+        output_file = _write_output(cohort_member_records, metadata_rows, output_path, input_path, feed_config)
+        delete_file(input_path)
+
+        logger.info(f"{feed_config.feed_type.upper()} pipeline executed successfully")
+
+        response = _get_response(
+            message=f'{feed_config.feed_type.upper()} pipeline executed successfully',
+            request_id=context.aws_request_id,
+            status_code=200,
+            feed_type=feed_config.feed_type,
+            records_processed=len(records),
+            records_retained=len(cohort_member_records),
+            output_file=output_file
+        )
 
     except Exception as e:
-        logger.error(f"GP pipeline execution failed: {str(e)}", exc_info=True)
-        
+        logger.error(f"Pipeline execution failed: {str(e)}", exc_info=True)
+
         response = _get_response(
-            message=f"GP pipeline execution failed: {str(e)}",
+            message=f"Pipeline execution failed: {str(e)}",
             request_id=context.aws_request_id,
             status_code=500
         )
 
     return response
 
-# File system methods
 
-def _read_gp_records(path: str) -> Tuple[List[str], pd.DataFrame]:
+def _read_records(path: str, skiprows: int) -> Tuple[List[str], pd.DataFrame]:
     with fsspec.open(path, mode="r", encoding="utf-8") as file:
         if isinstance(file, list):
             raise ValueError(f"Expected one file, got {len(file)}: {path}")
-        
-        # Read the first 2 lines as headers
-        lines = file.readlines()
-        metadata_rows = [line.strip() for line in lines[:2]]
-        
-        # Reset file pointer and read as DataFrame
-        file.seek(0)        
 
-        # Read CSV with all columns as strings to preserve leading zeros and handle data consistently
+        lines = file.readlines()
+        metadata_rows = [line.strip() for line in lines[:skiprows]] if skiprows > 0 else []
+
+        file.seek(0)
+
         df = pd.read_csv(
-            file, 
-            dtype=str, 
-            keep_default_na=False, 
-            na_values=['', 'NULL', 'null', 'None'],  
-            skiprows=2, # skip metadata rows
-            header=0 # Single header row
+            file,
+            dtype=str,
+            keep_default_na=False,
+            na_values=['', 'NULL', 'null', 'None'],
+            skiprows=skiprows,
+            header=0
         )
 
     return metadata_rows, df
 
-def _write_gp_records(records: pd.DataFrame, metadata_rows: List[str], location: str) -> str:
-    """
-    Write GP records to CSV file in the same format as input
-    
-    Args:
-        records: List of record dictionaries to write
-        location: Output file location (local path or S3 URL)
-    """        
-    parent_dir = _get_output_dir(location)
+
+def _write_output(
+        cohort_member_records: pd.DataFrame,
+        metadata_rows: List[str],
+        output_location: str,
+        input_path: str,
+        feed_config: FeedConfig
+) -> str | None:
+    original_filename = input_path.split('/')[-1]
+    output_file = _write_records(cohort_member_records, metadata_rows, output_location, original_filename, feed_config)
+    logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
+    return output_file
+
+
+def _write_records(
+        records: pd.DataFrame,
+        metadata_rows: List[str],
+        location: str,
+        original_filename: str,
+        feed_config: FeedConfig
+) -> str:
+    parent_dir = _get_output_dir(location, feed_config.feed_type)
     if not parent_dir:
         raise IOError(f"Failed to determine output directory under location: {location}")
-    
-    file_path = _get_output_file(parent_dir, "gp_records")
 
-    if not file_path:
-        raise IOError(f"Failed to determine output file path under location: {location}")
+    file_path = f"{parent_dir}/{original_filename}"
 
     logger.info(f"Writing {len(records)} records to: {file_path}")
 
     try:
-        with fsspec.open(file_path, 
-                         mode="w", 
+        with fsspec.open(file_path,
+                         mode="w",
                          s3_additional_kwargs={
-                            "ServerSideEncryption": "aws:kms",
-                            "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
+                             "ServerSideEncryption": "aws:kms",
+                             "SSEKMSKeyId": os.getenv("KMS_KEY_ID")
                          }
-        ) as file:
-            # Check if file is a list (shouldn't happen with single file path, but fsspec can be unpredictable)
+                         ) as file:
             if isinstance(file, list):
                 raise ValueError(f"Expected single file handle, got list: {file_path}")
 
-            # Write the original metadata rows
-            for metadata_row in metadata_rows:
-                file.write(metadata_row + '\n')
-            
-            # Write the filtered data
+            if feed_config.preserve_metadata and metadata_rows:
+                for metadata_row in metadata_rows:
+                    file.write(metadata_row + '\n')
+
             if not records.empty:
                 records.to_csv(file, index=False, header=True)
             else:
-                # If no records, still write column headers
                 file.write(','.join(records.columns) + '\n')
 
         logger.info(f"Successfully wrote {len(records)} records to {file_path}")
     except Exception as e:
-        logger.error(f"Failed to write GP records to {file_path}: {str(e)}", exc_info=True)
-        raise IOError(f"Failed to write GP records to {file_path}: {str(e)}")    
+        logger.error(f"Failed to write records to {file_path}: {str(e)}", exc_info=True)
+        raise IOError(f"Failed to write records to {file_path}: {str(e)}")
 
     return file_path
 
-def _write_output(cohort_member_records, metadata_rows, output_location) -> str | None:
-    # Write the filtered results to output file
-    output_file = _write_gp_records(cohort_member_records, metadata_rows, output_location)
-    logger.info(f"Wrote {len(cohort_member_records)} records to {output_file}")
 
-    return output_file
-
-def _get_output_dir(location: str) -> str | None:
-    """
-    Get the parent directory path from the given location using fsspec for universal storage support.
-
-    Args:
-        location: Output directory location (file://path, s3://bucket/path, az://container/path, etc.)
-
-    Returns:
-        str: Full path for output directory
-    """
-    path = None
-
+def _get_output_dir(location: str, feed_type: str) -> str | None:
     try:
         protocol = fsspec.utils.get_protocol(location)
         fs = fsspec.filesystem(protocol)
@@ -180,91 +181,38 @@ def _get_output_dir(location: str) -> str | None:
         if not fs.exists(location):
             raise IOError(f"Output location {location} does not exist.")
 
-        # Generate date/time components
         current_date = datetime.now()
         year = current_date.strftime("%Y")
         month = current_date.strftime("%m")
         day = current_date.strftime("%d")
 
-        path = f"{location.rstrip('/')}/{year}/{month}/{day}" 
+        path = f"{location.rstrip('/')}/{feed_type}_feed/{year}/{month}/{day}"
 
         logging.info(f"Creating directory structure at {path} using fsspec filesystem for protocol {protocol}")
-        try:
-            fs.makedirs(path, exist_ok=True)
-            logging.info(f"Created directory structure at {path}")
+        fs.makedirs(path, exist_ok=True)
+        logging.info(f"Created directory structure at {path}")
 
-        except (Exception) as e:
-            logging.info(f"Failed to create directory structure at {path}: {e}")
-            logging.error(f"Failed to create directory structure at {path}: {e}")
-            raise IOError(f"Failed to create directory structure at {path}: {e}")                   
-        
+        return path
+
     except Exception as e:
         logging.error(f"Error creating output directory path under {location}: {e}")
         raise IOError(f"Failed to generate output directory path under {location}: {e}")
 
-    return path
-
-def _get_output_file(dir_path: str, file_name_prefix: str) -> str | None:
-    """
-    Get the output file path from the given location using fsspec for universal storage support.
-
-    Args:
-        location: Output directory location (file://path, s3://bucket/path, az://container/path, etc.)
-
-    Returns:
-        str: Full path for output file
-    """
-    file_path = None
-
-    timestamp = datetime.now().strftime("%H%M%S")
-    filename = f"gp_records_{timestamp}.csv"
-    file_path = f"{dir_path}/{filename}"    
-
-    return file_path
-
-# HTTP response helpers
 
 def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> Dict[str, Any]:
-    """
-    Helper function to create a standardized error response.
-    
-    Args:
-        message: Error message
-        request_id: AWS Lambda request ID
-        status_code: HTTP status code (default is 400)
-        
-    Returns:
-        dict: Standardized error response
-    """
     body_data = {
         'message': message,
         'requestId': request_id
     }
-    
-    # Add any additional key-value pairs
     body_data.update(kwargs)
- 
+
     return {
         'statusCode': status_code,
         'body': json.dumps(body_data)
     }
 
-# This function deliberately does not include 
-# - network/timeout handling - Network issues not handled
-# - retry logic - Single attempt only
-def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
-    """
-    Encrypt a list of values for the given field name.
-    
-    Args:
-        field_name: The name of the field being encrypted
-        values: List of values to encrypt
-        
-    Returns:
-        List[str] | None: List of encrypted values, or None if encryption fails
-    """
-    encrypted_chunks = None
 
+def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
     skip_encryption = os.getenv("SKIP_ENCRYPTION")
 
     if skip_encryption:
@@ -274,72 +222,58 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
     if not field_name:
         logger.warning(f"Field name is None or empty, cannot encrypt")
         return None
-        
+
     if not values or len(values) == 0:
         logger.warning(f"Values list is None or empty for field: {field_name}")
         return None
-    
-    # Filter out invalid values
+
     valid_values = [v for v in values if v and str(v).lower() not in ['nan', 'none', 'null', '']]
     if len(valid_values) != len(values):
-        logger.warning(f"Filtered out {len(values) - len(valid_values)} invalid values from list for field: {field_name}")
+        logger.warning(
+            f"Filtered out {len(values) - len(valid_values)} invalid values from list for field: {field_name}")
     if not valid_values:
         logger.warning(f"No valid values in list for field: {field_name}")
         return None
-    
-    # Determine chunk size to stay under Lambda payload limits
-    # ~10000 values per chunk to stay well under 6MB limit
+
     chunk_size = int(os.getenv("PSEUDONYMISATION_BATCH_SIZE", "10000"))
 
     if len(valid_values) <= chunk_size:
-        # Small batch, process normally
-        encrypted_chunks = _encrypt_chunk(field_name, valid_values)   
-    else:
-        # Large batch, process in chunks
-        logger.info(f"Large batch detected ({len(valid_values)} values). Processing in chunks of {chunk_size}")
-        
-        encrypted_chunks = []
-        total_chunks = (len(valid_values) + chunk_size - 1) // chunk_size  # Ceiling division
-        
-        for i in range(0, len(valid_values), chunk_size):
-            chunk = valid_values[i:i + chunk_size]
-            chunk_num = (i // chunk_size) + 1
-            
-            logger.info(f"Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} values)")
-            
-            encrypted_chunk = _encrypt_chunk(field_name, chunk)
-            if encrypted_chunk is None:
-                logger.error(f"Failed to encrypt chunk {chunk_num}")
-                raise ValueError(f"Batch encryption failed on chunk {chunk_num}")
-            
-            encrypted_chunks.extend(encrypted_chunk)
-        
-        logger.info(f"Successfully processed all {total_chunks} chunks ({len(encrypted_chunks)} total encrypted values)")
+        return _encrypt_chunk(field_name, valid_values)
 
-    return encrypted_chunks  
+    logger.info(f"Large batch detected ({len(valid_values)} values). Processing in chunks of {chunk_size}")
+
+    encrypted_chunks = []
+    total_chunks = (len(valid_values) + chunk_size - 1) // chunk_size
+
+    for i in range(0, len(valid_values), chunk_size):
+        chunk = valid_values[i:i + chunk_size]
+        chunk_num = (i // chunk_size) + 1
+
+        logger.info(f"Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} values)")
+
+        encrypted_chunk = _encrypt_chunk(field_name, chunk)
+        if encrypted_chunk is None:
+            logger.error(f"Failed to encrypt chunk {chunk_num}")
+            raise ValueError(f"Batch encryption failed on chunk {chunk_num}")
+
+        encrypted_chunks.extend(encrypted_chunk)
+
+    logger.info(f"Successfully processed all {total_chunks} chunks ({len(encrypted_chunks)} total encrypted values)")
+    return encrypted_chunks
+
 
 def _encrypt_chunk(field_name: str, values: List[str]) -> List[str] | None:
-    """
-    Encrypt a single chunk of values.
-    
-    Args:
-        field_name: The name of the field being encrypted
-        values: List of values to encrypt (should be <= CHUNK_SIZE)
-        
-    Returns:
-        List[str] | None: List of encrypted values, or None if encryption fails
-    """
-    encrypted_values = None
-
     logger.info(f"Batch encrypting {len(values)} values for field: {field_name}")
 
     function_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
     if not function_name:
-        logger.error("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
-        raise ValueError("Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
+        logger.error(
+            "Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
+        raise ValueError(
+            "Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
 
     try:
-        lambda_client = boto3.client('lambda')    
+        lambda_client = boto3.client('lambda')
         response = lambda_client.invoke(
             FunctionName=function_name,
             InvocationType='RequestResponse',
@@ -351,30 +285,31 @@ def _encrypt_chunk(field_name: str, values: List[str]) -> List[str] | None:
         )
 
         result = json.loads(response['Payload'].read())
-        if 'error' in result:   
+        if 'error' in result:
             logger.error(f"Encryption service returned error: {result['error']}")
             raise ValueError(f"Encryption service error: {result['error']}")
         elif 'errorMessage' in result:
-            # Handle Lambda execution errors
             logger.error(f"Lambda execution error: {result['errorMessage']}")
             raise ValueError(f"Lambda execution error: {result['errorMessage']}")
         elif 'field_value' not in result:
-            logger.error(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
-            raise ValueError(f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
-    
+            logger.error(
+                f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+            raise ValueError(
+                f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+
         encrypted_values = result['field_value']
-        
+
         if not isinstance(encrypted_values, list) or len(encrypted_values) != len(values):
-            logger.error(f"Encryption service returned unexpected format: expected list of {len(values)} values, got {type(encrypted_values)}")
+            logger.error(
+                f"Encryption service returned unexpected format: expected list of {len(values)} values, got {type(encrypted_values)}")
             raise ValueError(f"Encryption service returned unexpected format: expected list of {len(values)} values")
-        
+
         logger.info(f"Successfully batch encrypted {len(values)} values for field: {field_name}")
+        return encrypted_values
 
     except ValueError as e:
-        # Re-raise ValueError (malformed response) to propagate up the call chain
         raise
     except Exception as e:
-        logger.error(f"Exception occurred while batch encrypting values for field: {field_name}: {str(e)}", exc_info=True)
+        logger.error(f"Exception occurred while batch encrypting values for field: {field_name}: {str(e)}",
+                     exc_info=True)
         raise
-
-    return encrypted_values

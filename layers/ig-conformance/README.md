@@ -8,7 +8,7 @@ Once the pipeline has finished processing a raw data set that data set is delete
 
 ## Step Function Integration
 
-The Lambda is designed to be triggered by Step Functions with required event parameters:
+The Lambda is designed to be triggered by with required event parameters:
 
 ```json
 {
@@ -39,7 +39,7 @@ ig-conformance/
 ├── common/
 │   └─ Shared code that can be used across the project e.g. cohort membership filtering.
 ├── pipeline/
-|    └─ Data ingestion pipelines, one per feed e.g. EMIS feed to ingest raw GP data
+|    └─ Data ingestion pipelines
 └── tests/
     └─ Unit and Integration tests built with Pytest
 ```
@@ -60,7 +60,7 @@ For local development and testing -
 docker buildx build \
   --platform linux/amd64 \
   --provenance=false \
-  -t emis_gprecord_ig_conformance:latest \
+  -t ig_conformance:latest \
   -f Dockerfile .
 ```
 
@@ -80,15 +80,13 @@ docker buildx build \
   --secret id=ssl-certs,src=/etc/ssl/certs/ca-certificates.crt \
   --platform linux/amd64 \
   --provenance=false \
-  -t emis_gprecord_ig_conformance:latest \
+  -t ig_conformance:latest \
   -f Dockerfile .
 ```
 
 ## Environment variables
 
 * `COHORT_STORE` - path to the cohort store
-* `INPUT_LOCATION` - path to input file (likely this will point to a path in the pseudonmisation layer that holds psedunymised GP records in EMIS format)
-* `OUTPUT_LOCATION` - path to the root output dir. The pipeline will write its output file under this dir.
 * `PSEUDONYMISATION_LAMBDA_FUNCTION_NAME` - the name of the Pseudonymisation Lambda that the IG conformance pipeline will use as part of the cohort checking step
 * `KMS_KEY_ID` - the ARN of the KMS encryption key used when writing to the `OUTPUT_LOCATION`. 
 * `LOG_LEVEL` - an optional variable that alters the default log level of `INFO`. You must supply a valid log level for the Python logging library i.e. `CRITICAL`, `FATAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`

@@ -3,12 +3,10 @@ import pandas as pd
 import json
 import os
 import io
-import tempfile
-import csv
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from aws.lambdas.emis_gprecord import handler as handler_module
-from aws.lambdas.emis_gprecord.handler import lambda_handler, _write_records
+from lambdas import handler as handler_module
+from lambdas.handler import lambda_handler
 
 # Fixtures
 

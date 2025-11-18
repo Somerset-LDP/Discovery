@@ -1,7 +1,5 @@
 import pytest
 import pandas as pd
-import logging
-from unittest.mock import patch
 from pipeline.conformance_processor import run
 from pipeline.feed_config import GP_FEED, SFT_FEED
 

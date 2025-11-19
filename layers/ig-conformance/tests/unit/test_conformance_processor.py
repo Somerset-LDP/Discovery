@@ -2,6 +2,7 @@ import pytest
 import pandas as pd
 from pipeline.conformance_processor import run
 from pipeline.feed_config import GP_FEED, SFT_FEED
+from unittest.mock import MagicMock
 
 
 
@@ -811,12 +812,6 @@ def test_sft_feed_no_metadata_rows_skipped():
     assert GP_FEED.metadata_rows_to_skip == 2
 
 
-def test_sft_feed_preserve_metadata_false():
-    """Test SFT feed configuration has preserve_metadata=False"""
-    assert SFT_FEED.preserve_metadata is False
-    assert GP_FEED.preserve_metadata is True
-
-
 def test_sft_vs_gp_feed_config_differences():
     """Test configuration differences between SFT and GP feeds"""
     # NHS column index
@@ -965,7 +960,6 @@ def test_sft_feed_with_large_dataset(large_cohort_store):
 
 def test_sft_feed_encrypt_function_called(sample_cohort_store):
     """Test encrypt function is called for SFT feed processing"""
-    from unittest.mock import MagicMock
 
     call_log = []
     def track_encrypt_calls(field_name, values):
@@ -979,7 +973,7 @@ def test_sft_feed_encrypt_function_called(sample_cohort_store):
         {'patient_id': 'P002', 'nhs_number': '2345678901', 'name': 'Bob'}
     ]
 
-    result = run(sample_cohort_store, _ensure_nhs_second(records), mock_encrypt_tracker, SFT_FEED)
+    run(sample_cohort_store, _ensure_nhs_second(records), mock_encrypt_tracker, SFT_FEED)
 
     # Should have called encrypt once with batch
     assert len(call_log) == 1

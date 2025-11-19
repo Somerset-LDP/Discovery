@@ -71,11 +71,12 @@ def lambda_handler(event, context):
         output_file = _write_output(cohort_member_records, metadata_rows, output_path, input_path, feed_config)
         delete_file(input_path)
 
-        logger.info(f"{feed_config.feed_type.upper()} pipeline executed successfully")
+        msg = f"{feed_config.feed_type.upper()} pipeline executed successfully"
+        logger.info(msg)
 
         response = _get_response(
-            message=f'{feed_config.feed_type.upper()} pipeline executed successfully',
             request_id=context.aws_request_id,
+            message=msg,
             status_code=200,
             feed_type=feed_config.feed_type,
             records_processed=len(records),
@@ -167,8 +168,9 @@ def _write_records(
 
         logger.info(f"Successfully wrote {len(records)} records to {file_path}")
     except Exception as e:
-        logger.error(f"Failed to write records to {file_path}: {str(e)}", exc_info=True)
-        raise IOError(f"Failed to write records to {file_path}: {str(e)}")
+        msg = f"Failed to write records to {file_path}: {e}"
+        logger.error(msg, exc_info=True)
+        raise IOError(msg)
 
     return file_path
 
@@ -195,8 +197,9 @@ def _get_output_dir(location: str, feed_type: str) -> str | None:
         return path
 
     except Exception as e:
-        logging.error(f"Error creating output directory path under {location}: {e}")
-        raise IOError(f"Failed to generate output directory path under {location}: {e}")
+        msg = f"Failed to generate output directory path under {location}: {e}"
+        logging.error(msg)
+        raise IOError(msg)
 
 
 def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> Dict[str, Any]:
@@ -253,8 +256,9 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
 
         encrypted_chunk = _encrypt_chunk(field_name, chunk)
         if encrypted_chunk is None:
-            logger.error(f"Failed to encrypt chunk {chunk_num}")
-            raise ValueError(f"Batch encryption failed on chunk {chunk_num}")
+            msg = f"Encryption failed for chunk {chunk_num}"
+            logger.error(msg)
+            raise ValueError(msg)
 
         encrypted_chunks.extend(encrypted_chunk)
 
@@ -267,10 +271,9 @@ def _encrypt_chunk(field_name: str, values: List[str]) -> List[str] | None:
 
     function_name = os.getenv("PSEUDONYMISATION_LAMBDA_FUNCTION_NAME")
     if not function_name:
-        logger.error(
-            "Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
-        raise ValueError(
-            "Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set")
+        msg = "Unable to resolve Pseudonymisation service. PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is not set"
+        logger.error(msg)
+        raise ValueError(msg)
 
     try:
         lambda_client = boto3.client('lambda')
@@ -286,23 +289,24 @@ def _encrypt_chunk(field_name: str, values: List[str]) -> List[str] | None:
 
         result = json.loads(response['Payload'].read())
         if 'error' in result:
-            logger.error(f"Encryption service returned error: {result['error']}")
-            raise ValueError(f"Encryption service error: {result['error']}")
+            msg = f"Encryption service returned error: {result['error']}"
+            logger.error(msg)
+            raise ValueError(msg)
         elif 'errorMessage' in result:
-            logger.error(f"Lambda execution error: {result['errorMessage']}")
-            raise ValueError(f"Lambda execution error: {result['errorMessage']}")
+            msg = f"Lambda execution error: {result['errorMessage']}"
+            logger.error(msg)
+            raise ValueError(msg)
         elif 'field_value' not in result:
-            logger.error(
-                f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
-            raise ValueError(
-                f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}")
+            msg = f"Encryption service returned malformed response: missing 'field_value' for field '{field_name}'. Response: {result}"
+            logger.error(msg)
+            raise ValueError(msg)
 
         encrypted_values = result['field_value']
 
         if not isinstance(encrypted_values, list) or len(encrypted_values) != len(values):
-            logger.error(
-                f"Encryption service returned unexpected format: expected list of {len(values)} values, got {type(encrypted_values)}")
-            raise ValueError(f"Encryption service returned unexpected format: expected list of {len(values)} values")
+            msg = f"Encryption service returned unexpected format: expected list of {len(values)} values"
+            logger.error(f"{msg}, got {type(encrypted_values)}")
+            raise ValueError(msg)
 
         logger.info(f"Successfully batch encrypted {len(values)} values for field: {field_name}")
         return encrypted_values

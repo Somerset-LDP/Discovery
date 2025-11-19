@@ -21,21 +21,38 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Debug workspace
-        run: |
-          echo "PWD: $(pwd)"
-          ls -la
-          ls -la layers/${{ github.event.inputs.lambda }}/
 
-      - name: Build ${{ github.event.inputs.lambda }} image
-        uses: delivops/ecr-build-action@v0.0.10
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          path: ./layers/${{ github.event.inputs.lambda }}/
-          image_name: "somerset-647582858282-dev-account-ecr"
-          tag: "latest,sha-${{ github.sha }}"
-          build_args: "ENV=dev,VERSION=${{ github.sha }}"
-          dockerfile_path: ./layers/${{ github.event.inputs.lambda }}/Dockerfile
-          aws_account_id: "647582858282"
-          aws_region: "eu-west-2"
-          aws_role: "GithubRunnerRole"
-          no_cache: true
+          role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
+          aws-region: eu-west-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./layers/${{ github.event.inputs.lambda }}/
+          file: ./layers/${{ github.event.inputs.lambda }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:${{ github.event.inputs.lambda }}-latest
+            647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:${{ github.event.inputs.lambda }}-${{ github.sha }}
+
+      # - name: Build ${{ github.event.inputs.lambda }} image
+      #   uses: delivops/ecr-build-action@v0.0.10
+      #   with:
+      #     path: ./layers/${{ github.event.inputs.lambda }}/
+      #     image_name: "somerset-647582858282-dev-account-ecr"
+      #     tag: "${{ github.event.inputs.lambda }}-latest,${{ github.sha }}"
+      #     build_args: "ENV=dev,VERSION=${{ github.sha }}"
+      #     dockerfile_path: ./layers/${{ github.event.inputs.lambda }}/Dockerfile
+      #     aws_account_id: "647582858282"
+      #     aws_region: "eu-west-2"
+      #     aws_role: "GithubRunnerRole"
+      #     no_cache: true
+      #     platforms: linux/amd64
+  

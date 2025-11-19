@@ -1,14 +1,18 @@
 import pandas as pd
 from typing import List, Dict, Callable
 import logging
+from pipeline.feed_config import FeedConfig
 
-# Column position constants based on the header row
-NHS_NUMBER_COL = 0
 
-def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, List[str]], List[str] | None]) -> pd.DataFrame:
+def run(
+        cohort_store: pd.Series,
+        records: pd.DataFrame,
+        encrypt: Callable[[str, List[str]], List[str] | None],
+        feed_config: FeedConfig
+) -> pd.DataFrame:
     logger = logging.getLogger(__name__)
 
-    logger.info(f"Starting GP pipeline processing for {len(records)} records")
+    logger.info(f"Starting pipeline processing for {len(records)} records")
     logger.info(f"There are {len(cohort_store)} cohort members")
 
     # Step 1: Extract and clean all NHS numbers, keeping track of valid records
@@ -16,7 +20,7 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
     nhs_numbers_for_records = []
     
     for index, record in records.iterrows():
-        nhs_number = record.iloc[NHS_NUMBER_COL]
+        nhs_number = record.iloc[feed_config.nhs_column_index]
         if not nhs_number or str(nhs_number).lower() in ['nan', 'none', 'null', '']:
             logger.warning(f"Record at index {index} has no NHS number")
             continue
@@ -33,8 +37,8 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
     logger.info(f"Found {len(unique_nhs_numbers)} unique NHS numbers from {len(nhs_numbers_for_records)} valid records")
     
     # Step 3: Batch encrypt all unique NHS numbers
-    encrypted_mapping = _batch_encrypt_nhs_numbers(unique_nhs_numbers, encrypt)
-    
+    encrypted_mapping = _batch_encrypt_nhs_numbers(unique_nhs_numbers, encrypt, feed_config)
+
     # Step 4: Filter records - keep ALL records where the NHS number is in cohort
     cohort_set = set()
     if not cohort_store.empty:
@@ -59,14 +63,15 @@ def run(cohort_store: pd.Series, records: pd.DataFrame, encrypt: Callable[[str, 
     
     return pd.DataFrame(filtered_records)
 
-def _batch_encrypt_nhs_numbers(nhs_numbers: List[str], encrypt: Callable[[str, List[str]], List[str] | None]) -> Dict[str, str]:
+def _batch_encrypt_nhs_numbers(nhs_numbers: List[str], encrypt: Callable[[str, List[str]], List[str] | None], feed_config: FeedConfig) -> Dict[str, str]:
     """
     Encrypt a batch of NHS numbers and return a mapping from original to encrypted values.
     
     Args:
         nhs_numbers: List of unique NHS numbers to encrypt
         encrypt: Encryption function that supports batch operations
-        
+        feed_config: Feed configuration for error reporting
+
     Returns:
         Dict mapping original NHS numbers to encrypted values
     """
@@ -90,4 +95,4 @@ def _batch_encrypt_nhs_numbers(nhs_numbers: List[str], encrypt: Callable[[str, L
             
     except Exception as e:
         logger.error(f"Error in batch encryption: {e}")
-        raise RuntimeError(f"Failed to process GP records due to batch encryption service error: {str(e)}")
+        raise RuntimeError(f"Failed to process {feed_config.feed_type.upper()} records due to batch encryption service error: {str(e)}")

@@ -3,12 +3,10 @@ import pandas as pd
 import json
 import os
 import io
-import tempfile
-import csv
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from aws.lambdas.emis_gprecord import handler as handler_module
-from aws.lambdas.emis_gprecord.handler import lambda_handler, _write_gp_records
+from lambdas import handler as handler_module
+from lambdas.handler import lambda_handler
 
 # Fixtures
 
@@ -16,14 +14,9 @@ from aws.lambdas.emis_gprecord.handler import lambda_handler, _write_gp_records
 def sample_event():
     """Basic event structure for Lambda handler."""
     return {
-        'Records': [
-            {
-                's3': {
-                    'bucket': {'name': 'test-bucket'},
-                    'object': {'key': 'input/gp_records.csv'}
-                }
-            }
-        ]
+        'input_path': 's3://test-bucket/input/gp_records.csv',
+        'output_path': 's3://test-bucket/output/',
+        'feed_type': 'gp'
     }
 
 @pytest.fixture
@@ -59,6 +52,15 @@ def missing_nhs_numbers_path():
     """Path to GP records with missing NHS numbers."""
     return Path(__file__).parent.parent / 'fixtures' / 'gp_data' / 'missing_nhs_numbers.csv'
 
+@pytest.fixture
+def sample_sft_event():
+    """Basic event structure for SFT feed Lambda handler."""
+    return {
+        'input_path': 's3://test-bucket/input/sft_records.csv',
+        'output_path': 's3://test-bucket/output/',
+        'feed_type': 'sft'
+    }
+
 @pytest.fixture(autouse=True)
 def valid_env_vars():
     """Automatically provide valid environment variables for tests that need them.
@@ -69,8 +71,6 @@ def valid_env_vars():
     """
     with patch.dict(os.environ, {
         'COHORT_STORE': 's3://test-bucket/cohort.csv',
-        'INPUT_LOCATION': 's3://test-bucket/gp_records.csv',
-        'OUTPUT_LOCATION': '/tmp',
         'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-pseudonymisation-lambda',
         'SKIP_ENCRYPTION': 'true'
     }):
@@ -83,36 +83,19 @@ def test_missing_cohort_store_env_var(sample_event, sample_context):
     """Test handler fails when COHORT_STORE environment variable is missing."""
     with patch.dict(os.environ, {}, clear=True):
         response = lambda_handler(sample_event, sample_context)
-        assert response['statusCode'] == 400
-        assert 'Missing one or more of the required environment variables' in response['body']
-
-def test_missing_input_location_env_var(sample_event, sample_context):
-    """Test handler fails when INPUT_LOCATION environment variable is missing."""
-    with patch.dict(os.environ, {'COHORT_STORE': 's3://bucket/cohort.csv'}, clear=True):
-        response = lambda_handler(sample_event, sample_context)
-        assert response['statusCode'] == 400
-        assert 'Missing one or more of the required environment variables' in response['body']
-
-def test_missing_output_location_env_var(sample_event, sample_context):
-    """Test handler fails when OUTPUT_LOCATION environment variable is missing."""
-    with patch.dict(os.environ, {
-        'COHORT_STORE': 's3://bucket/cohort.csv',
-        'INPUT_LOCATION': 's3://bucket/gp_records.csv'
-    }, clear=True):
-        response = lambda_handler(sample_event, sample_context)
-        assert response['statusCode'] == 400
-        assert 'Missing one or more of the required environment variables' in response['body']
+        assert response['statusCode'] == 500
+        body = json.loads(response['body'])
+        assert 'Missing required environment variable: COHORT_STORE' in body['message']
 
 def test_missing_pseudonymisation_lambda_function_name_env_var(sample_event, sample_context):
     """Test handler fails when PSEUDONYMISATION_LAMBDA_FUNCTION_NAME environment variable is missing."""
     with patch.dict(os.environ, {
-        'COHORT_STORE': 's3://bucket/cohort.csv',
-        'INPUT_LOCATION': 's3://bucket/gp_records.csv',
-        'OUTPUT_LOCATION': '/tmp'
+        'COHORT_STORE': 's3://bucket/cohort.csv'
     }, clear=True):
         response = lambda_handler(sample_event, sample_context)
-        assert response['statusCode'] == 400
-        assert 'Missing one or more of the required environment variables' in response['body']
+        assert response['statusCode'] == 500
+        body = json.loads(response['body'])
+        assert 'Missing required environment variable: PSEUDONYMISATION_LAMBDA_FUNCTION_NAME' in body['message']
 
 def test_valid_environment_variables(sample_event, sample_context, valid_gp_records_path, tmp_path):
     """Test handler starts processing with valid environment variables."""
@@ -120,7 +103,7 @@ def test_valid_environment_variables(sample_event, sample_context, valid_gp_reco
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch.object(handler_module, 'run') as mock_pipeline, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Mock cohort members
@@ -137,10 +120,67 @@ nhs_number,name,dob,ethnicity,postcode
         
         # Mock pipeline
         mock_pipeline.return_value = pd.DataFrame()
-        
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         assert response['statusCode'] == 200
-        assert 'GP pipeline executed successfully' in response['body']
+        body = json.loads(response['body'])
+        assert 'GP pipeline executed successfully' in body['message']
+
+
+# Lambda Event Parameters Tests
+
+def test_missing_input_path_event_param(sample_context):
+    """Test handler fails when input_path parameter is missing from event."""
+    invalid_event = {
+        'output_path': 's3://test-bucket/output/',
+        'feed_type': 'gp'
+    }
+
+    response = lambda_handler(invalid_event, sample_context)
+    assert response['statusCode'] == 500
+    body = json.loads(response['body'])
+    assert "Missing required parameter 'input_path' in event" in body['message']
+
+
+def test_missing_output_path_event_param(sample_context):
+    """Test handler fails when output_path parameter is missing from event."""
+    invalid_event = {
+        'input_path': 's3://test-bucket/input/gp_records.csv',
+        'feed_type': 'gp'
+    }
+
+    response = lambda_handler(invalid_event, sample_context)
+    assert response['statusCode'] == 500
+    body = json.loads(response['body'])
+    assert "Missing required parameter 'output_path' in event" in body['message']
+
+
+def test_missing_feed_type_event_param(sample_context):
+    """Test handler fails when feed_type parameter is missing from event."""
+    invalid_event = {
+        'input_path': 's3://test-bucket/input/gp_records.csv',
+        'output_path': 's3://test-bucket/output/'
+    }
+
+    response = lambda_handler(invalid_event, sample_context)
+    assert response['statusCode'] == 500
+    body = json.loads(response['body'])
+    assert "Missing required parameter 'feed_type' in event" in body['message']
+
+
+def test_empty_feed_type_event_param(sample_context):
+    """Test handler fails when feed_type parameter is empty string."""
+    invalid_event = {
+        'input_path': 's3://test-bucket/input/gp_records.csv',
+        'output_path': 's3://test-bucket/output/',
+        'feed_type': ''
+    }
+
+    response = lambda_handler(invalid_event, sample_context)
+    assert response['statusCode'] == 500
+    body = json.loads(response['body'])
+    assert "Missing required parameter 'feed_type' in event" in body['message']
 
 
 # File I/O Integration Tests
@@ -150,7 +190,7 @@ def test_lambda_handler_with_valid_gp_records(sample_event, sample_context, vali
     
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Setup mocks to simulate reading the valid GP records
@@ -167,7 +207,8 @@ nhs_number,name
 8888888888,Third Member"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
-        
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         # Verify successful processing
@@ -182,7 +223,7 @@ def test_lambda_handler_with_empty_gp_records(sample_event, sample_context, empt
     
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Setup mocks to simulate empty GP records
@@ -194,6 +235,7 @@ def test_lambda_handler_with_empty_gp_records(sample_event, sample_context, empt
 nhs_number,name,dob,ethnicity,postcode"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
         
         response = lambda_handler(sample_event, sample_context)
         
@@ -224,7 +266,8 @@ def test_lambda_handler_with_malformed_gp_records(sample_event, sample_context, 
     
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Setup mocks to simulate malformed but readable CSV
@@ -239,6 +282,10 @@ malformed_data,Another Name,"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
+        # Mock pipeline processing - returns empty DataFrame for malformed data
+        mock_pipeline.return_value = pd.DataFrame()
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         # Should still process successfully even with malformed structure
@@ -256,7 +303,7 @@ def test_pipeline_filters_cohort_members(sample_event, sample_context, valid_gp_
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch.object(handler_module, 'run') as mock_pipeline, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Mock reading cohort and GP records
@@ -273,7 +320,8 @@ nhs_number,name,dob,ethnicity,postcode
         # Mock pipeline returning filtered records
         expected_filtered = pd.DataFrame([{'nhs_number': '1234567890', 'name': 'Alice Johnson', 'dob': '1985-03-12', 'ethnicity': 'White', 'postcode': 'TA1 1AA'}])
         mock_pipeline.return_value = expected_filtered
-        
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         assert response['statusCode'] == 200
@@ -290,7 +338,7 @@ def test_pipeline_no_cohort_matches(sample_event, sample_context, valid_gp_recor
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch.object(handler_module, 'run') as mock_pipeline, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         mock_read_cohort.return_value = pd.Series(['1234567890'])
@@ -304,7 +352,8 @@ nhs_number,name,dob,ethnicity,postcode
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
         mock_pipeline.return_value = pd.DataFrame()  # No matches
-        
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         assert response['statusCode'] == 200
@@ -361,8 +410,8 @@ def test_file_write_error_handling(sample_event, sample_context):
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch.object(handler_module, 'run') as mock_pipeline, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv:
-        
+         patch.object(handler_module, '_write_output') as mock_write_output:
+
         mock_read_cohort.return_value = pd.Series(['1234567890'])
 
         # Mock GP records file content in EMIS format
@@ -374,7 +423,7 @@ nhs_number,name,dob,ethnicity,postcode
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
 
         mock_pipeline.return_value = pd.DataFrame([{'nhs_number': '1234567890', 'name': 'Test Patient'}])
-        mock_to_csv.side_effect = OSError("Cannot write output file")
+        mock_write_output.side_effect = OSError("Cannot write output file")
 
         response = lambda_handler(sample_event, sample_context)
         
@@ -390,7 +439,8 @@ def test_lambda_handler_with_missing_nhs_column(sample_event, sample_context, mi
     
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Setup mocks to simulate data missing NHS column
@@ -405,6 +455,10 @@ Jane Doe,1975-06-22,Asian,BS1 2BB"""
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
+        # Mock pipeline - returns empty DataFrame since no NHS column means no matches
+        mock_pipeline.return_value = pd.DataFrame()
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         # Should still process successfully but won't find cohort members
@@ -419,22 +473,12 @@ def test_lambda_handler_with_missing_nhs_numbers(sample_event, sample_context, m
     
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
-         patch.object(handler_module, 'delete_file') as mock_delete_file, \
-         patch('boto3.client') as mock_boto_client:
-        
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
+
         # Setup mocks to simulate data with some missing NHS numbers
         mock_read_cohort.return_value = pd.Series(['2345678901'])
-        
-        # Mock boto3 Lambda client - but _encrypt should return None for empty values due to its own validation
-        mock_lambda_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.statusCode = 200
-        mock_payload = MagicMock()
-        mock_payload.read.return_value = json.dumps({'field_value': '2345678901'}).encode()
-        mock_response.__getitem__ = MagicMock(return_value=mock_payload)
-        mock_lambda_client.invoke.return_value = mock_response
-        mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content with missing NHS numbers (empty cells should be skipped)
         gp_content = """Complete results are available,,,,,,
@@ -446,6 +490,11 @@ nhs_number,name,dob,ethnicity,postcode
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
         
+        # Mock pipeline - returns only the one valid cohort member (Jane Doe)
+        filtered_data = pd.DataFrame([{'nhs_number': '2345678901', 'name': 'Jane Doe', 'dob': '1975-06-22', 'ethnicity': 'Asian', 'postcode': 'BS1 2BB'}])
+        mock_pipeline.return_value = filtered_data
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         # Should process successfully and find the one valid cohort member
@@ -462,27 +511,21 @@ def test_invalid_event_structure(sample_context):
     """Test handler with invalid event structure."""
     invalid_event = {'invalid': 'structure'}
     
-    # Since the handler doesn't actually use the event structure, 
-    # it should still fail due to missing env vars
-    with patch.dict(os.environ, {}, clear=True):
-        response = lambda_handler(invalid_event, sample_context)
-        
-        assert response['statusCode'] == 400
-        response_body = json.loads(response['body'])
-        assert 'Missing one or more of the required environment variables' in response_body['message']
+    response = lambda_handler(invalid_event, sample_context)
+
+    assert response['statusCode'] == 500
+    response_body = json.loads(response['body'])
+    assert "Missing required parameter 'input_path' in event" in response_body['message']
 
 def test_missing_s3_records(sample_context):
     """Test handler with missing S3 records in event."""
     event_no_records = {}
     
-    # Since the handler doesn't actually use the event structure, 
-    # it should still fail due to missing env vars
-    with patch.dict(os.environ, {}, clear=True):
-        response = lambda_handler(event_no_records, sample_context)
-        
-        assert response['statusCode'] == 400
-        response_body = json.loads(response['body'])
-        assert 'Missing one or more of the required environment variables' in response_body['message']
+    response = lambda_handler(event_no_records, sample_context)
+
+    assert response['statusCode'] == 500
+    response_body = json.loads(response['body'])
+    assert "Missing required parameter 'input_path' in event" in response_body['message']
 
 
 # Integration Tests
@@ -493,7 +536,7 @@ def test_end_to_end_processing_success(sample_event, sample_context, tmp_path):
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
          patch.object(handler_module, 'run') as mock_pipeline, \
-         patch('pandas.DataFrame.to_csv') as mock_to_csv, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
          patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Setup test data
@@ -516,7 +559,8 @@ nhs_number,name
         
         mock_read_cohort.return_value = cohort_data
         mock_pipeline.return_value = filtered_records
-        
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         # Verify success response
@@ -526,39 +570,31 @@ nhs_number,name
         assert body_data['records_processed'] == 3
         assert body_data['records_retained'] == 2
         
-        # Verify the to_csv method was called (output file writing)
-        mock_to_csv.assert_called_once()
+        # Verify the write_output method was called
+        mock_write_output.assert_called_once()
 
 def test_output_file_creation_integration(sample_event, sample_context, tmp_path):
     """Test that output file is actually created with correct content."""
-    output_dir = tmp_path / 'output'
-    output_dir.mkdir()
     
-    with patch.dict(os.environ, {'OUTPUT_LOCATION': str(output_dir)}), \
-         patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch.object(handler_module, 'delete_file'), \
-         patch('pandas.DataFrame.to_csv'), \
-         patch('boto3.client') as mock_boto_client:
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
         
         # Setup test data - only return cohort member in GP data
         cohort_data = pd.Series(['1234567890'])
-        
-        # Mock boto3 Lambda client for encryption
-        mock_lambda_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.statusCode = 200
-        mock_payload = MagicMock()
-        mock_payload.read.return_value = json.dumps({'field_value': '1234567890'}).encode()
-        mock_response.__getitem__ = MagicMock(return_value=mock_payload)
-        mock_lambda_client.invoke.return_value = mock_response
-        mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content
         gp_file_content = io.StringIO("Complete results are available,,,,,,\n,,,,,,\nnhs_number,name,dob\n1234567890,Alice Johnson,1985-03-12\n")
         mock_fsspec_open.return_value.__enter__.return_value = gp_file_content
         
         mock_read_cohort.return_value = cohort_data
+        
+        # Mock pipeline returning the cohort member record
+        filtered_data = pd.DataFrame([{'nhs_number': '1234567890', 'name': 'Alice Johnson', 'dob': '1985-03-12'}])
+        mock_pipeline.return_value = filtered_data
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
         
         response = lambda_handler(sample_event, sample_context)
         
@@ -576,10 +612,10 @@ def test_end_to_end_no_cohort_members(sample_event, sample_context):
     """Test end-to-end processing when no cohort members found."""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch.object(handler_module, 'delete_file'), \
-         patch('pandas.DataFrame.to_csv'), \
-         patch.object(handler_module, 'run') as mock_pipeline:
-        
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
+
         cohort_data = pd.Series(['1234567890'])
         
         # Mock GP records file content - no matching cohort members
@@ -588,7 +624,8 @@ def test_end_to_end_no_cohort_members(sample_event, sample_context):
         
         mock_read_cohort.return_value = cohort_data
         mock_pipeline.return_value = pd.DataFrame()  # No cohort members
-        
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         # Parse response body - it's always a JSON string
@@ -603,13 +640,13 @@ def test_end_to_end_no_cohort_members(sample_event, sample_context):
 def test_cohort_read_error_handling(sample_event, sample_context):
     """Test error handling when cohort reading fails."""
     with patch('fsspec.open') as mock_fsspec_open, \
-         patch.object(handler_module, 'delete_file'), \
+         patch.object(handler_module, 'delete_file') as mock_delete_file, \
          patch.object(handler_module, 'read_cohort_members') as mock_read_cohort:
         
         # Mock GP records file content
         gp_file_content = io.StringIO("Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n1234567890,Test Patient\n")
         mock_fsspec_open.return_value.__enter__.return_value = gp_file_content
-        
+
         # Setup cohort reading to raise an exception
         mock_read_cohort.side_effect = Exception("Cohort file not accessible")
         
@@ -618,43 +655,22 @@ def test_cohort_read_error_handling(sample_event, sample_context):
         # Verify error is properly handled
         assert response['statusCode'] == 500
         
-        # Handle both direct body and JSON body
-        body = response['body']
-        if isinstance(body, str):
-            try:
-                parsed_body = json.loads(body)
-                error_message = parsed_body.get('error', body)
-            except json.JSONDecodeError:
-                error_message = body
-        else:
-            error_message = str(body)
-        
+        # Parse response body - it's always a JSON string
+        body = json.loads(response['body'])
+        error_message = body.get('message', '')
+
         assert 'Cohort file not accessible' in error_message
 
 def test_cohort_membership_lookup_logic(sample_event, sample_context):
     """Test the cohort membership lookup logic with mixed data."""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch.object(handler_module, 'delete_file'), \
-         patch('pandas.DataFrame.to_csv'), \
-         patch('boto3.client') as mock_boto_client:
-        
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
+
         # Setup test data with multiple scenarios
         cohort_data = pd.Series(['1111111111', '2222222222', '3333333333'])
-        
-        # Mock boto3 Lambda client for encryption - return different values for different NHS numbers
-        mock_lambda_client = MagicMock()
-        def mock_invoke(**kwargs):
-            payload = json.loads(kwargs['Payload'])
-            field_value = payload['field_value']
-            mock_response = MagicMock()
-            mock_response.statusCode = 200
-            mock_payload = MagicMock()
-            mock_payload.read.return_value = json.dumps({'field_value': field_value}).encode()
-            mock_response.__getitem__ = MagicMock(return_value=mock_payload)
-            return mock_response
-        mock_lambda_client.invoke.side_effect = mock_invoke
-        mock_boto_client.return_value = mock_lambda_client
         
         # Mock GP records file content with mixed cohort membership
         gp_file_content = io.StringIO("""Complete results are available,,,,,,
@@ -665,9 +681,17 @@ nhs_number,name,dob
 2222222222,Carol White,1975-06-30
 5555555555,David Brown,1980-12-15""")
         mock_fsspec_open.return_value.__enter__.return_value = gp_file_content
-        
+
         mock_read_cohort.return_value = cohort_data
         
+        # Mock pipeline returning only cohort members
+        filtered_records = pd.DataFrame([
+            {'nhs_number': '1111111111', 'name': 'Alice Johnson', 'dob': '1985-03-12'},
+            {'nhs_number': '2222222222', 'name': 'Carol White', 'dob': '1975-06-30'}
+        ])
+        mock_pipeline.return_value = filtered_records
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
         response = lambda_handler(sample_event, sample_context)
         
         # Parse response body - it's always a JSON string
@@ -684,8 +708,9 @@ def test_encryption_service_response_parsing(sample_event, sample_context):
     """Test Lambda handler handles encryption service response parsing correctly"""
     with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
          patch('fsspec.open') as mock_fsspec_open, \
-         patch('pandas.DataFrame.to_csv'), \
-         patch.object(handler_module, 'delete_file'), \
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file, \
          patch('boto3.client') as mock_boto_client:
 
         mock_read_cohort.return_value = pd.Series(['encrypted_nhs_123'])
@@ -711,6 +736,11 @@ def test_encryption_service_response_parsing(sample_event, sample_context):
         gp_content = "Complete results are available,,,,,,\n,,,,,,\nnhs_number,name\n1234567890,Alice Johnson\n"
         mock_gp_file = io.StringIO(gp_content)
         mock_fsspec_open.return_value.__enter__.return_value = mock_gp_file
+
+        # Mock pipeline returning cohort member
+        filtered_data = pd.DataFrame([{'nhs_number': '1234567890', 'name': 'Alice Johnson'}])
+        mock_pipeline.return_value = filtered_data
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
 
         with patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}):
         
@@ -792,215 +822,166 @@ def test_malformed_encryption_response_handling(sample_event, sample_context):
             assert response['statusCode'] == 500
 
 
-# File Format Validation Tests - No Mocking of pandas.DataFrame.to_csv
+# SFT Feed Specific Tests
 
-def test_actual_file_output_complete_validation():
-    """Test complete file output validation without mocking pandas.DataFrame.to_csv."""
-    # Sample EMIS header rows
-    header_rows = [
-        "Complete results are available,,,,,,",
-        ",,,,,,",
-        ""  # Third header row is empty in EMIS format
-    ]
-    
-    # Sample DataFrame with EMIS-compliant data
-    records = pd.DataFrame({
-        'nhs_number': ['1234567890', '9876543210'],
-        'name': ['John Smith', 'Jane Doe'],
-        'dob': ['15-Jan-80', '22-Jun-75'],
-        'ethnicity': ['White', 'Asian'],
-        'postcode': ['TA1 1AA', 'BS1 2BB']
-    })
-    
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        # Call the actual function without mocking to_csv
-        output_path = _write_gp_records(records, header_rows, tmp_dir)
-        
-        # Read back the actual file content
-        with open(output_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        lines = content.strip().split('\n')
-        
-        # Validate header preservation
-        assert lines[0] == "Complete results are available,,,,,,"
-        assert lines[1] == ",,,,,,"
-        assert lines[2] == ""
-        
-        # Validate CSV structure (headers + data)
-        assert lines[3] == "nhs_number,name,dob,ethnicity,postcode"
-        assert lines[4] == "1234567890,John Smith,15-Jan-80,White,TA1 1AA"
-        assert lines[5] == "9876543210,Jane Doe,22-Jun-75,Asian,BS1 2BB"
-        
-        # Validate total line count
-        assert len(lines) == 6
+def test_sft_feed_processing_success(sample_sft_event, sample_context):
+    """Test SFT feed processing with correct configuration."""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
+
+        mock_read_cohort.return_value = pd.Series(['1234567890', '9876543210'])
+
+        # SFT format: no metadata rows, NHS number in column 1 (index 1)
+        sft_content = """patient_id,nhs_number,name,dob
+P001,1234567890,Alice Johnson,1985-03-12
+P002,9876543210,Bob Smith,1990-01-01
+P003,5555555555,Non Member,1980-05-15"""
+        mock_sft_file = io.StringIO(sft_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_sft_file
+
+        filtered_records = pd.DataFrame([
+            {'patient_id': 'P001', 'nhs_number': '1234567890', 'name': 'Alice Johnson', 'dob': '1985-03-12'},
+            {'patient_id': 'P002', 'nhs_number': '9876543210', 'name': 'Bob Smith', 'dob': '1990-01-01'}
+        ])
+        mock_pipeline.return_value = filtered_records
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
+        response = lambda_handler(sample_sft_event, sample_context)
+
+        assert response['statusCode'] == 200
+        body_data = json.loads(response['body'])
+        assert 'SFT pipeline executed successfully' in body_data['message']
+        assert body_data['records_processed'] == 3
+        assert body_data['records_retained'] == 2
+        assert body_data['feed_type'] == 'sft'
 
 
-def test_actual_file_output_empty_dataframe():
-    """Test file output with empty DataFrame - should still write headers."""
-    header_rows = [
-        "Complete results are available,,,,,,",
-        ",,,,,,",
-        ""
-    ]
-    
-    # Empty DataFrame but with proper column structure
-    records = pd.DataFrame(columns=['nhs_number', 'name', 'dob', 'ethnicity', 'postcode'])
-    
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        output_path = _write_gp_records(records, header_rows, tmp_dir)
-        
-        with open(output_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        lines = content.strip().split('\n')
-        
-        # Should have header rows + column headers but no data rows
-        assert lines[0] == "Complete results are available,,,,,,"
-        assert lines[1] == ",,,,,,"  
-        assert lines[2] == ""
-        assert lines[3] == "nhs_number,name,dob,ethnicity,postcode"
-        assert len(lines) == 4
+def test_sft_feed_no_metadata_preservation(sample_sft_event, sample_context):
+    """Test that SFT feed does not preserve metadata rows."""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_records') as mock_write_records, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
+
+        mock_read_cohort.return_value = pd.Series(['1234567890'])
+
+        # SFT format: no metadata rows
+        sft_content = """patient_id,nhs_number,name
+P001,1234567890,Alice Johnson"""
+        mock_sft_file = io.StringIO(sft_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_sft_file
+
+        filtered_records = pd.DataFrame([{'patient_id': 'P001', 'nhs_number': '1234567890', 'name': 'Alice Johnson'}])
+        mock_pipeline.return_value = filtered_records
+        mock_write_records.return_value = 's3://test-bucket/output/processed.csv'
+
+        response = lambda_handler(sample_sft_event, sample_context)
+
+        assert response['statusCode'] == 200
+
+        # Verify _write_records was called with correct parameters
+        mock_write_records.assert_called_once()
+        call_args = mock_write_records.call_args
+
+        # Check that metadata_rows is empty (no metadata to preserve)
+        metadata_rows = call_args[0][1]
+        assert len(metadata_rows) == 0
+
+        # Check feed_config has preserve_metadata=False
+        feed_config = call_args[0][4]
+        assert feed_config.feed_type == 'sft'
+        assert feed_config.preserve_metadata is False
+        assert feed_config.metadata_rows_to_skip == 0
 
 
-def test_header_preservation_comprehensive():
-    """Test comprehensive header preservation scenarios."""
-    # Headers with various special characters and lengths
-    header_rows = [
-        "Complete results are available, with special chars: £$%,,,,",
-        "Second header with unicode: ñáéí,and,commas,in,cells,",
-        "Third header row is completely empty"
-    ]
-    
-    records = pd.DataFrame({
-        'nhs_number': ['1234567890'],
-        'name': ['Test Patient']
-    })
-    
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        output_path = _write_gp_records(records, header_rows, tmp_dir)
-        
-        with open(output_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        lines = content.split('\n')
-        
-        # Validate exact header preservation (byte-for-byte)
-        assert lines[0] == "Complete results are available, with special chars: £$%,,,,"
-        assert lines[1] == "Second header with unicode: ñáéí,and,commas,in,cells,"
-        assert lines[2] == "Third header row is completely empty"
-        
-        # Validate headers are in correct order
-        assert content.startswith("Complete results are available, with special chars:")
-        
-        # Validate UTF-8 encoding preserved special characters
-        assert "£$%" in lines[0]
-        assert "ñáéí" in lines[1]
+def test_sft_feed_with_nhs_in_second_column(sample_sft_event, sample_context):
+    """Test SFT feed correctly identifies NHS number in second column (index 1)."""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
+
+        mock_read_cohort.return_value = pd.Series(['1234567890'])
+
+        # SFT format: NHS number in second column (index 1)
+        sft_content = """patient_id,nhs_number,name,dob
+P001,1234567890,Alice Johnson,1985-03-12
+P002,9999999999,Non Member,1990-01-01"""
+        mock_sft_file = io.StringIO(sft_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_sft_file
+
+        # Mock pipeline to verify it receives correct config
+        def verify_config(cohort, records, encrypt_fn, feed_config):
+            assert feed_config.nhs_column_index == 1
+            assert feed_config.feed_type == 'sft'
+            return pd.DataFrame([{'patient_id': 'P001', 'nhs_number': '1234567890', 'name': 'Alice Johnson', 'dob': '1985-03-12'}])
+
+        mock_pipeline.side_effect = verify_config
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
+        response = lambda_handler(sample_sft_event, sample_context)
+
+        assert response['statusCode'] == 200
+        body_data = json.loads(response['body'])
+        assert body_data['feed_type'] == 'sft'
 
 
-def test_csv_data_format_nhs_and_dates():
-    """Test NHS number and date format preservation in CSV output."""
-    header_rows = ["Header1", "Header2", "Header3"]
-    
-    records = pd.DataFrame({
-        'nhs_number': ['1234567890', '9876543210', '5555555555'],
-        'name': ['Patient One', 'Patient Two', 'Patient Three'],
-        'dob': ['15-Jan-80', '22-Jun-75', '05-Dec-90'],
-        'registration_date': ['01-Mar-20', '15-Apr-21', '30-Nov-22']
-    })
-    
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        output_path = _write_gp_records(records, header_rows, tmp_dir)
-        
-        with open(output_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            
-        # Parse CSV data starting after headers
-        data_lines = lines[4:]  # Skip 3 header + 1 column header row
-        
-        # Validate NHS numbers remain 10 digits without spaces
-        for line in data_lines:
-            if line.strip():  # Skip empty lines
-                nhs_number = line.split(',')[0]
-                assert len(nhs_number) == 10
-                assert nhs_number.isdigit()
-        
-        # Validate date formats remain dd-MMM-yy
-        assert "15-Jan-80" in lines[4]
-        assert "22-Jun-75" in lines[5] 
-        assert "05-Dec-90" in lines[6]
-        assert "01-Mar-20" in lines[4]
+def test_sft_feed_empty_records(sample_sft_event, sample_context):
+    """Test SFT feed with empty records."""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
+
+        mock_read_cohort.return_value = pd.Series(['1234567890'])
+
+        # SFT format: header only, no data
+        sft_content = """patient_id,nhs_number,name,dob"""
+        mock_sft_file = io.StringIO(sft_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_sft_file
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
+        response = lambda_handler(sample_sft_event, sample_context)
+
+        assert response['statusCode'] == 200
+        body_data = json.loads(response['body'])
+        assert body_data['records_processed'] == 0
+        assert body_data['records_retained'] == 0
 
 
-def test_csv_data_special_characters():
-    """Test CSV data with special characters (commas, quotes, newlines)."""
-    header_rows = ["Header1", "Header2", "Header3"]
-    
-    # Data containing CSV special characters that need proper escaping
-    records = pd.DataFrame({
-        'nhs_number': ['1234567890', '9876543210'],
-        'name': ['Smith, John Jr.', 'O\'Connor, Mary'],
-        'address': ['123 Main St, Apt 2', 'Address with "quotes" in it'],
-        'notes': ['Patient has multiple\nconditions', 'Normal patient']
-    })
-    
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        output_path = _write_gp_records(records, header_rows, tmp_dir)
-        
-        with open(output_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Validate that pandas properly escapes special characters
-        assert '"Smith, John Jr."' in content  # Commas in data should be quoted
-        assert '"O\'Connor, Mary"' in content or 'O\'Connor, Mary' in content  # Apostrophes handled
-        assert '"Address with ""quotes"" in it"' in content  # Quotes should be escaped
-        assert 'multiple\nconditions' in content or '"Patient has multiple\nconditions"' in content  # Newlines handled
-        
-        # Validate we can parse it back as valid CSV
-        with open(output_path, 'r', encoding='utf-8') as f:
-            # Skip headers
-            for _ in range(3):
-                f.readline()
-            reader = csv.DictReader(f)
-            rows = list(reader)
-            
-        assert len(rows) == 2
-        assert rows[0]['name'] == 'Smith, John Jr.'
-        assert rows[1]['name'] == 'O\'Connor, Mary'
+def test_sft_feed_case_insensitive(sample_context):
+    """Test that feed_type is case insensitive for SFT."""
+    with patch.object(handler_module, 'read_cohort_members') as mock_read_cohort, \
+         patch('fsspec.open') as mock_fsspec_open, \
+         patch.object(handler_module, 'run') as mock_pipeline, \
+         patch.object(handler_module, '_write_output') as mock_write_output, \
+         patch.object(handler_module, 'delete_file') as mock_delete_file:
 
+        mock_read_cohort.return_value = pd.Series(['1234567890'])
 
-def test_file_output_column_order_preservation():
-    """Test that column order is preserved in CSV output."""
-    header_rows = ["Header1", "Header2", "Header3"]
-    
-    # Create DataFrame with specific column order (nhs_number should be first for EMIS compatibility)
-    records = pd.DataFrame({
-        'nhs_number': ['1234567890', '9876543210'],
-        'name': ['John Smith', 'Jane Doe'], 
-        'dob': ['15-Jan-80', '22-Jun-75'],
-        'postcode': ['TA1 1AA', 'BS1 2BB'],
-        'ethnicity': ['White', 'Asian']
-    })
-    
-    # Ensure column order is as expected
-    expected_columns = ['nhs_number', 'name', 'dob', 'postcode', 'ethnicity']
-    records = records[expected_columns]  # Explicit column ordering
-    
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        output_path = _write_gp_records(records, header_rows, tmp_dir)
-        
-        with open(output_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        # Check column headers are in correct order
-        column_header_line = lines[3].strip()  # After 3 EMIS headers
-        assert column_header_line == "nhs_number,name,dob,postcode,ethnicity"
-        
-        # Check first data row has values in correct positions
-        first_data_line = lines[4].strip()
-        values = first_data_line.split(',')
-        assert values[0] == '1234567890'  # nhs_number first
-        assert values[1] == 'John Smith'   # name second
-        assert values[2] == '15-Jan-80'    # dob third
-        assert values[3] == 'TA1 1AA'     # postcode fourth
-        assert values[4] == 'White'       # ethnicity fifth
+        sft_content = """patient_id,nhs_number,name
+P001,1234567890,Alice Johnson"""
+        mock_sft_file = io.StringIO(sft_content)
+        mock_fsspec_open.return_value.__enter__.return_value = mock_sft_file
+
+        mock_pipeline.return_value = pd.DataFrame([{'patient_id': 'P001', 'nhs_number': '1234567890', 'name': 'Alice Johnson'}])
+        mock_write_output.return_value = 's3://test-bucket/output/processed.csv'
+
+        # Test with uppercase
+        event_uppercase = {
+            'input_path': 's3://test-bucket/input/sft_records.csv',
+            'output_path': 's3://test-bucket/output/',
+            'feed_type': 'SFT'
+        }
+
+        response = lambda_handler(event_uppercase, sample_context)
+
+        assert response['statusCode'] == 200
+        body_data = json.loads(response['body'])
+        assert body_data['feed_type'] == 'sft'
+

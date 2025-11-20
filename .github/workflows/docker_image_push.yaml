@@ -26,14 +26,14 @@ jobs:
       id-token: write
       contents: read
     steps:
-    - name: Determine build pipeline type
-      run: |
-        if [[ "${{ github.event.inputs.lambda }}" == "ig-conformance" || \
-              "${{ github.event.inputs.lambda }}" == "canonical" ]]; then
-          echo "LAMBDA_TYPE=docker" >> $GITHUB_ENV
-        else
-          echo "LAMBDA_TYPE=zip" >> $GITHUB_ENV
-        fi
+      - name: Determine build pipeline type
+        run: |
+          if [[ "${{ github.event.inputs.lambda }}" == "ig-conformance" || \
+                "${{ github.event.inputs.lambda }}" == "canonical" ]]; then
+            echo "LAMBDA_TYPE=docker" >> $GITHUB_ENV
+          else
+            echo "LAMBDA_TYPE=zip" >> $GITHUB_ENV
+          fi
 
       - name: Checkout repo
         uses: actions/checkout@v4

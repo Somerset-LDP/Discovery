@@ -171,3 +171,13 @@ def clean_patient(df: pd.DataFrame) -> pd.DataFrame:
     df = df.replace({pd.NA: None, float('nan'): None})
     
     return df
+
+def mark_verified(df: pd.DataFrame) -> pd.DataFrame:
+    """Sets a 'verified' column in the DataFrame to the given status string."""
+    df['verified'] = True
+    return df
+
+def mark_unverified(df: pd.DataFrame) -> pd.DataFrame:
+    """Sets a 'verified' column in the DataFrame to the given status string."""
+    df['verified'] = False
+    return df

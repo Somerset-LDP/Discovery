@@ -38,15 +38,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Login to Amazon ECR
-        if: env.LAMBDA_TYPE == 'docker'
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
           aws-region: eu-west-2
+
+      - name: Login to Amazon ECR
+        if: env.LAMBDA_TYPE == 'docker'
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push Docker image
         if: env.LAMBDA_TYPE == 'docker'

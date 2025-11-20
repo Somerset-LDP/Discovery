@@ -71,7 +71,7 @@ jobs:
         if: env.LAMBDA_TYPE == 'zip' 
         run: |
           cd ./lambda_functions/$LAMBDA_DIR && ls -lah
-          ls ./$LAMBDA_DIR/ -lah 
+          ls -lah ./$LAMBDA_DIR/
           aws s3 cp ./$LAMBDA_DIR/lambda_main.zip s3://somerset-647582858282-dev-lambda/${{ github.event.inputs.lambda }}/lambda_main.zip
 
       - name: Update Lambda function with new Docker image

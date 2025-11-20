@@ -37,28 +37,6 @@ jobs:
 
       - name: Checkout repo
         uses: actions/checkout@v4
-      - name: Debug workspace
-        run: |
-          echo "PWD: $(pwd)"
-          ls -la
-          ls -la layers/${{ github.event.inputs.lambda }}/
-
-      - name: Build ${{ github.event.inputs.lambda }} image
-        uses: delivops/ecr-build-action@v0.0.10
-        with:
-<<<<<<< Updated upstream
-          path: ./layers/${{ github.event.inputs.lambda }}/
-          image_name: "somerset-647582858282-dev-account-ecr"
-          tag: "latest,sha-${{ github.sha }}"
-          build_args: "ENV=dev,VERSION=${{ github.sha }}"
-          dockerfile_path: ./layers/${{ github.event.inputs.lambda }}/Dockerfile
-          aws_account_id: "647582858282"
-          aws_region: "eu-west-2"
-          aws_role: "GithubRunnerRole"
-          no_cache: true
-=======
-          role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
-          aws-region: eu-west-2
 
       - name: Login to Amazon ECR
         if: env.LAMBDA_TYPE == 'docker'
@@ -94,7 +72,6 @@ jobs:
             --function-name "${{ github.event.inputs.lambda }}" \
             --image-uri "$IMAGE_URI"
 
-
       - name: Update Lambda function with new code from S3
         if: env.LAMBDA_TYPE == 'zip' && github.event.inputs.redeploy == 'true'
         run: |
@@ -102,4 +79,3 @@ jobs:
             --function-name "${{ github.event.inputs.lambda }}" \
             --s3-bucket "somerset-647582858282-dev-lambda" \
             --s3-key "${{ github.event.inputs.lambda }}/lambda_main.zip"
->>>>>>> Stashed changes

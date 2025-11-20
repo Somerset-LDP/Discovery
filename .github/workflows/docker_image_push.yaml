@@ -1,4 +1,4 @@
-name: Build and Push Lambda Image to ECR
+name: Build and deploy Lambda function
 
 on:
   workflow_dispatch:
@@ -11,6 +11,13 @@ on:
           - ig-conformance
           - canonical
           - pseudonymised
+          - cohort-data-processing
+          - pseudonymisation-service
+      redeploy:
+        description: 'Redeploy Lambda function'
+        required: true
+        default: 'false'
+        type: boolean
 
 jobs:
   deploy:
@@ -19,6 +26,15 @@ jobs:
       id-token: write
       contents: read
     steps:
+    - name: Determine build pipeline type
+      run: |
+        if [[ "${{ github.event.inputs.lambda }}" == "ig-conformance" || \
+              "${{ github.event.inputs.lambda }}" == "canonical" ]]; then
+          echo "LAMBDA_TYPE=docker" >> $GITHUB_ENV
+        else
+          echo "LAMBDA_TYPE=zip" >> $GITHUB_ENV
+        fi
+
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -29,9 +45,11 @@ jobs:
           aws-region: eu-west-2
 
       - name: Login to Amazon ECR
+        if: env.LAMBDA_TYPE == 'docker'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push Docker image
+        if: env.LAMBDA_TYPE == 'docker'
         uses: docker/build-push-action@v6
         with:
           context: ./layers/${{ github.event.inputs.lambda }}/
@@ -42,17 +60,29 @@ jobs:
             647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:${{ github.event.inputs.lambda }}-latest
             647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:${{ github.event.inputs.lambda }}-${{ github.sha }}
 
-      # - name: Build ${{ github.event.inputs.lambda }} image
-      #   uses: delivops/ecr-build-action@v0.0.10
-      #   with:
-      #     path: ./layers/${{ github.event.inputs.lambda }}/
-      #     image_name: "somerset-647582858282-dev-account-ecr"
-      #     tag: "${{ github.event.inputs.lambda }}-latest,${{ github.sha }}"
-      #     build_args: "ENV=dev,VERSION=${{ github.sha }}"
-      #     dockerfile_path: ./layers/${{ github.event.inputs.lambda }}/Dockerfile
-      #     aws_account_id: "647582858282"
-      #     aws_region: "eu-west-2"
-      #     aws_role: "GithubRunnerRole"
-      #     no_cache: true
-      #     platforms: linux/amd64
-  
+      - name: Create ZIP Archive with Lambda files
+        if: env.LAMBDA_TYPE == 'zip' 
+        run: |
+          LAMBDA_DIR=$(echo "${{ github.event.inputs.lambda }}" | tr '-' '_')
+          "cd lambda_functions/$LAMBDA_DIR && zip lambda_main.zip *"
+      - name: Upload ZIP to S3
+        if: env.LAMBDA_TYPE == 'zip' 
+        run: |
+          "cd lambda_functions/${{ github.event.inputs.lambda }} && aws s3 cp lambda_main.zip s3://somerset-647582858282-dev-lambda/${{ github.event.inputs.lambda }}/lambda_main.zip"
+
+      - name: Update Lambda function with new Docker image
+        if: env.LAMBDA_TYPE == 'docker' && github.event.inputs.redeploy == 'true'
+        run: |
+          IMAGE_URI="647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:${{ github.event.inputs.lambda }}-latest"
+          aws lambda update-function-code \
+            --function-name "${{ github.event.inputs.lambda }}" \
+            --image-uri "$IMAGE_URI"
+
+      - name: Update Lambda function with new code from S3
+        if: env.LAMBDA_TYPE == 'zip' && github.event.inputs.redeploy == 'true'
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ github.event.inputs.lambda }}" \
+            --s3-bucket "somerset-647582858282-dev-lambda" \
+            --s3-key "${{ github.event.inputs.lambda }}/lambda_main.zip"
+

@@ -5,9 +5,6 @@ from typing import Dict
 logger = logging.getLogger()
 
 REQUIRED_ENV_VARS = [
-    'INPUT_S3_BUCKET',
-    'INPUT_PREFIX',
-    'OUTPUT_S3_BUCKET',
     'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME',
     'KMS_KEY_ID'
 ]

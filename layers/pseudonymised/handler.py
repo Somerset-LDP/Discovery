@@ -14,6 +14,7 @@ from aws_utils import (
     invoke_pseudonymisation_lambda_batch
 )
 from env_utils import get_env_variables
+from feed_config import FeedConfig, get_feed_config
 from validation_utils import validate_dataframe
 
 
@@ -37,30 +38,24 @@ def setup_logging():
 
 logger = setup_logging()
 
-FIELDS_TO_PSEUDONYMISE = {
-    'NHS Number': 'nhs_number',
-    'Given Name': 'given_name',
-    'Family Name': 'family_name',
-    'Date of Birth': 'date_of_birth',
-    'Gender': 'gender',
-    'Postcode': 'postcode'
-}
 
-
-def read_csv_from_s3(bucket: str, key: str) -> tuple[pd.DataFrame, list[str]]:
+def read_csv_from_s3(bucket: str, key: str, skiprows: int, preserve_metadata: bool) -> tuple[pd.DataFrame, list[str]]:
     try:
         content = read_s3_file(bucket, key)
         content_str = content.decode('utf-8')
 
         lines = content_str.split('\n')
-        metadata_lines = lines[:2] if len(lines) >= 2 else []
+        metadata_lines = []
+
+        if preserve_metadata and skiprows > 0:
+            metadata_lines = lines[:skiprows] if len(lines) >= skiprows else []
 
         df = pd.read_csv(
             StringIO(content_str),
             dtype=str,
             keep_default_na=False,
             na_values=['', 'NULL', 'null', 'None'],
-            skiprows=2,
+            skiprows=skiprows,
             header=0
         )
         return df, metadata_lines
@@ -76,14 +71,16 @@ def read_csv_from_s3(bucket: str, key: str) -> tuple[pd.DataFrame, list[str]]:
         raise
 
 
-def normalize_nhs_numbers(df: pd.DataFrame) -> pd.DataFrame:
-    df['NHS Number'] = df['NHS Number'].astype(str).str.replace(' ', '').str.strip()
+def normalize_nhs_numbers(df: pd.DataFrame, fields_to_pseudonymise: Dict[str, str]) -> pd.DataFrame:
+    nhs_column = next((col for col, field_type in fields_to_pseudonymise.items() if field_type == 'nhs_number'), None)
+    if nhs_column and nhs_column in df.columns:
+        df[nhs_column] = df[nhs_column].astype(str).str.replace(' ', '', regex=False).str.strip()
     return df
 
 
-def pseudonymise(df: pd.DataFrame, lambda_function_name: str) -> pd.DataFrame:
+def pseudonymise(df: pd.DataFrame, lambda_function_name: str, fields_to_pseudonymise: Dict[str, str]) -> pd.DataFrame:
     try:
-        for csv_field_name, internal_field_name in FIELDS_TO_PSEUDONYMISE.items():
+        for csv_field_name, internal_field_name in fields_to_pseudonymise.items():
             logger.info(f"Pseudonymising column: {csv_field_name}")
             original_values = df[csv_field_name].tolist()
             pseudonymised_values = invoke_pseudonymisation_lambda_batch(
@@ -112,16 +109,19 @@ def write_pseudonymised_data(
         df: pd.DataFrame,
         bucket: str,
         kms_key_id: str,
-        metadata_lines: list[str]
+        metadata_lines: list[str],
+        preserve_metadata: bool,
+        feed_type: str
 ) -> None:
     if df.empty:
         raise ValueError("No records to write")
 
-    output_key = generate_output_key()
+    output_key = generate_output_key(feed_type)
     csv_buffer = StringIO()
 
-    for line in metadata_lines:
-        csv_buffer.write(line + '\n')
+    if preserve_metadata:
+        for line in metadata_lines:
+            csv_buffer.write(line + '\n')
 
     df.to_csv(csv_buffer, index=False)
     csv_content = csv_buffer.getvalue()
@@ -130,14 +130,14 @@ def write_pseudonymised_data(
     logger.info(f"Successfully wrote {len(df)} records to s3://{bucket}/{output_key}")
 
 
-def generate_output_key() -> str:
+def generate_output_key(feed_type: str) -> str:
     current_date = datetime.now()
     year = current_date.strftime("%Y")
     month = current_date.strftime("%m")
     day = current_date.strftime("%d")
     timestamp = current_date.strftime("%Y%m%d_%H%M%S_%f")
     filename = f"patient_{timestamp}.csv"
-    output_key = f"emis_gp_feed/{year}/{month}/{day}/raw/{filename}"
+    output_key = f"{feed_type}_feed/{year}/{month}/{day}/raw/{filename}"
 
     return output_key
 
@@ -158,11 +158,12 @@ def process_file(
         s3_key: str,
         output_bucket: str,
         lambda_function_name: str,
-        kms_key_id: str
+        kms_key_id: str,
+        feed_config: FeedConfig
 ) -> Dict[str, Any]:
     logger.info(f"Processing file: s3://{bucket}/{s3_key}")
 
-    df, metadata = read_csv_from_s3(bucket, s3_key)
+    df, metadata = read_csv_from_s3(bucket, s3_key, feed_config.metadata_rows_to_skip, feed_config.preserve_metadata)
     if df.empty:
         logger.warning(f"No records found in file: s3://{bucket}/{s3_key}")
         delete_s3_file(bucket, s3_key)
@@ -176,7 +177,7 @@ def process_file(
     records_input = len(df)
     logger.info(f"File {s3_key}: {records_input} records on input")
 
-    df, invalid_records = validate_dataframe(df)
+    df, invalid_records = validate_dataframe(df, feed_config.validation_rules, feed_config.fields_to_pseudonymise)
     records_valid = len(df)
     records_invalid = len(invalid_records)
 
@@ -193,8 +194,8 @@ def process_file(
             'records_pseudonymised': 0
         }
 
-    df = normalize_nhs_numbers(df)
-    df = pseudonymise(df, lambda_function_name)
+    df = normalize_nhs_numbers(df, feed_config.fields_to_pseudonymise)
+    df = pseudonymise(df, lambda_function_name, feed_config.fields_to_pseudonymise)
     records_pseudonymised = len(df)
 
     logger.info(f"File {s3_key}: {records_pseudonymised} records after pseudonymisation")
@@ -208,7 +209,9 @@ def process_file(
         df,
         output_bucket,
         kms_key_id,
-        metadata
+        metadata,
+        feed_config.preserve_metadata,
+        feed_config.feed_type
     )
 
     delete_s3_file(bucket, s3_key)
@@ -229,7 +232,8 @@ def process_all_files(
         input_prefix: str,
         output_bucket: str,
         lambda_function_name: str,
-        kms_key_id: str
+        kms_key_id: str,
+        feed_config: FeedConfig
 ) -> Dict[str, Any]:
     files = list_s3_files(input_bucket, input_prefix)
 
@@ -246,7 +250,8 @@ def process_all_files(
                 s3_key,
                 output_bucket,
                 lambda_function_name,
-                kms_key_id
+                kms_key_id,
+                feed_config
             )
 
             processed_files.append(processed_file)
@@ -270,19 +275,26 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
         logger.info("Starting pseudonymisation pipeline execution")
         env_vars = get_env_variables()
-
-        input_bucket = env_vars['INPUT_S3_BUCKET']
-        input_prefix = env_vars['INPUT_PREFIX']
-        output_bucket = env_vars['OUTPUT_S3_BUCKET']
         lambda_function_name = env_vars['PSEUDONYMISATION_LAMBDA_FUNCTION_NAME']
         kms_key_id = env_vars['KMS_KEY_ID']
+
+        input_bucket = event.get("input_s3_bucket")
+        input_prefix = event.get("input_prefix")
+        output_bucket = event.get("output_s3_bucket")
+        feed_type = event.get("feed_type", "").lower()
+
+        if not all([input_bucket, input_prefix, output_bucket, feed_type]):
+            raise ValueError("Missing required parameter in event")
+
+        feed_config = get_feed_config(feed_type)
 
         summary = process_all_files(
             input_bucket,
             input_prefix,
             output_bucket,
             lambda_function_name,
-            kms_key_id
+            kms_key_id,
+            feed_config
         )
 
         if summary['files_processed'] == 0:

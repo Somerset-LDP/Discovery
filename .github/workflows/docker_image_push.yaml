@@ -70,12 +70,12 @@ jobs:
       - name: Upload ZIP to S3
         if: env.LAMBDA_TYPE == 'zip' 
         run: |
+          export LAMBDA_DIR=$(echo "${{ github.event.inputs.lambda }}" | tr '-' '_')
           echo "LAMBDA DIR: $LAMBDA_DIR"
-          cd ./lambda_functions
+          cd ./lambda_functions/$LAMBDA_DIR
           pwd
           ls -lah
-          
-          "aws s3 cp ./$LAMBDA_DIR/lambda_main.zip s3://somerset-647582858282-dev-lambda/${{ github.event.inputs.lambda }}/lambda_main.zip"
+          "aws s3 cp ./lambda_main.zip s3://somerset-647582858282-dev-lambda/${{ github.event.inputs.lambda }}/lambda_main.zip"
 
       - name: Update Lambda function with new Docker image
         if: env.LAMBDA_TYPE == 'docker' && github.event.inputs.redeploy == 'true'

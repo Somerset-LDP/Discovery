@@ -63,7 +63,7 @@ jobs:
       - name: Create ZIP Archive with Lambda files
         if: env.LAMBDA_TYPE == 'zip' 
         run: |
-          LAMBDA_DIR=$(echo "${{ github.event.inputs.lambda }}" | tr '-' '_')
+          export LAMBDA_DIR=$(echo "${{ github.event.inputs.lambda }}" | tr '-' '_')
           cd ./lambda_functions/$LAMBDA_DIR && zip lambda_main.zip *
           pwd
           ls -lah

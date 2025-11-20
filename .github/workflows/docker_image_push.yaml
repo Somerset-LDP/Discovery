@@ -75,7 +75,7 @@ jobs:
           cd ./lambda_functions/$LAMBDA_DIR
           pwd
           ls -lah
-          "aws s3 cp ./lambda_main.zip s3://somerset-647582858282-dev-lambda/${{ github.event.inputs.lambda }}/lambda_main.zip"
+          aws s3 cp lambda_main.zip s3://somerset-647582858282-dev-lambda/${{ github.event.inputs.lambda }}/lambda_main.zip
 
       - name: Update Lambda function with new Docker image
         if: env.LAMBDA_TYPE == 'docker' && github.event.inputs.redeploy == 'true'

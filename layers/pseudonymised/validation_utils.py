@@ -61,7 +61,6 @@ def is_valid_uk_postcode(postcode: Union[str, None]) -> bool:
 
 
 def is_valid_date_of_birth(date_of_birth: Union[str, None], validation_dob_format: str) -> bool:
-
     if not is_valid_string(date_of_birth):
         return False
 
@@ -72,7 +71,11 @@ def is_valid_date_of_birth(date_of_birth: Union[str, None], validation_dob_forma
         return False
 
 
-def validate_record(row: pd.Series, validation_rules: Dict[str, Any], fields_to_pseudonymise: Dict[str, str]) -> Tuple[bool, str]:
+def validate_record(
+        row: pd.Series,
+        validation_rules: Dict[str, Any], 
+        fields_to_pseudonymise: Dict[str, str]
+) -> Tuple[bool, str]:
     for column_name, field_type in fields_to_pseudonymise.items():
         value = row.get(column_name)
 
@@ -99,7 +102,11 @@ def validate_record(row: pd.Series, validation_rules: Dict[str, Any], fields_to_
     return True, ""
 
 
-def validate_dataframe(df: pd.DataFrame, validation_rules: Dict[str, Any], fields_to_pseudonymise: Dict[str, str]) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+def validate_dataframe(
+        df: pd.DataFrame,
+        validation_rules: Dict[str, Any],
+        fields_to_pseudonymise: Dict[str, str]
+) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     initial_count = len(df)
     logger.info(f"Starting validation of {initial_count} records")
 

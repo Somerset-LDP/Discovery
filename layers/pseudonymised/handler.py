@@ -1,8 +1,9 @@
 import json
 import logging
+import os
 from datetime import datetime
 from io import StringIO
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import pandas as pd
 
@@ -13,9 +14,22 @@ from aws_utils import (
     delete_s3_file,
     invoke_pseudonymisation_lambda_batch
 )
-from env_utils import get_env_variables
 from feed_config import FeedConfig, get_feed_config
 from validation_utils import validate_dataframe
+
+
+
+REQUIRED_ENV_VARS = [
+    'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME',
+    'KMS_KEY_ID'
+]
+
+REQUIRED_EVENT_PARAMS = [
+    'input_s3_bucket',
+    'input_prefix',
+    'output_s3_bucket',
+    'feed_type'
+]
 
 
 def setup_logging():
@@ -37,6 +51,29 @@ def setup_logging():
 
 
 logger = setup_logging()
+
+
+def validate_required_params(
+        params: Dict[str, Any],
+        param_names: List[str],
+        param_type: str
+) -> Dict[str, str]:
+    validated = {}
+    for name in param_names:
+        value = params.get(name, '')
+        validated[name] = str(value).strip()
+
+    missing = []
+    for name, value in validated.items():
+        if not value:
+            missing.append(name)
+
+    if missing:
+        error_msg = f"Missing required {param_type}s: {', '.join(missing)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    return validated
 
 
 def read_csv_from_s3(bucket: str, key: str, skiprows: int, preserve_metadata: bool) -> tuple[pd.DataFrame, list[str]]:
@@ -274,17 +311,16 @@ def process_all_files(
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     try:
         logger.info("Starting pseudonymisation pipeline execution")
-        env_vars = get_env_variables()
+
+        env_vars = validate_required_params(dict(os.environ), REQUIRED_ENV_VARS, 'environment variable')
         lambda_function_name = env_vars['PSEUDONYMISATION_LAMBDA_FUNCTION_NAME']
         kms_key_id = env_vars['KMS_KEY_ID']
 
-        input_bucket = event.get("input_s3_bucket")
-        input_prefix = event.get("input_prefix")
-        output_bucket = event.get("output_s3_bucket")
-        feed_type = event.get("feed_type", "").lower()
-
-        if not all([input_bucket, input_prefix, output_bucket, feed_type]):
-            raise ValueError("Missing required parameter in event")
+        event_params = validate_required_params(event, REQUIRED_EVENT_PARAMS, 'event parameter')
+        input_bucket = event_params['input_s3_bucket']
+        input_prefix = event_params['input_prefix']
+        output_bucket = event_params['output_s3_bucket']
+        feed_type = event_params['feed_type'].lower()
 
         feed_config = get_feed_config(feed_type)
 

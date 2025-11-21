@@ -14,7 +14,8 @@ from handler import (
     create_response,
     process_file,
     process_all_files,
-    lambda_handler
+    lambda_handler,
+    validate_required_params
 )
 
 
@@ -58,6 +59,75 @@ def sft_feed_config():
             "valid_date_format": "%Y-%m-%d"
         }
     )
+
+
+def test_validate_required_params_returns_all_required_variables():
+    env_vars = {
+        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda',
+        'KMS_KEY_ID': 'test-kms-key-id'
+    }
+    param_names = ['PSEUDONYMISATION_LAMBDA_FUNCTION_NAME', 'KMS_KEY_ID']
+
+    result = validate_required_params(env_vars, param_names, 'environment variable')
+
+    assert result == env_vars
+    assert result['PSEUDONYMISATION_LAMBDA_FUNCTION_NAME'] == 'test-lambda'
+    assert result['KMS_KEY_ID'] == 'test-kms-key-id'
+
+
+def test_validate_required_params_raises_value_error_when_variables_missing():
+    env_vars = {
+        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda',
+        'KMS_KEY_ID': ''
+    }
+    param_names = ['PSEUDONYMISATION_LAMBDA_FUNCTION_NAME', 'KMS_KEY_ID']
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_required_params(env_vars, param_names, 'environment variable')
+
+    assert "Missing required environment variables" in str(exc_info.value)
+    assert "KMS_KEY_ID" in str(exc_info.value)
+
+
+def test_validate_required_params_raises_value_error_when_all_variables_missing():
+    env_vars = {}
+    param_names = ['PSEUDONYMISATION_LAMBDA_FUNCTION_NAME', 'KMS_KEY_ID']
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_required_params(env_vars, param_names, 'environment variable')
+
+    assert "Missing required environment variables" in str(exc_info.value)
+    assert "PSEUDONYMISATION_LAMBDA_FUNCTION_NAME" in str(exc_info.value)
+    assert "KMS_KEY_ID" in str(exc_info.value)
+
+
+def test_validate_required_params_with_event_parameters():
+    event_params = {
+        'input_s3_bucket': 'test-bucket',
+        'input_prefix': 'test-prefix',
+        'output_s3_bucket': 'output-bucket',
+        'feed_type': 'gp'
+    }
+    param_names = ['input_s3_bucket', 'input_prefix', 'output_s3_bucket', 'feed_type']
+
+    result = validate_required_params(event_params, param_names, 'event parameter')
+
+    assert result == event_params
+    assert result['input_s3_bucket'] == 'test-bucket'
+    assert result['feed_type'] == 'gp'
+
+
+def test_validate_required_params_strips_whitespace():
+    params = {
+        'param1': '  value1  ',
+        'param2': 'value2'
+    }
+    param_names = ['param1', 'param2']
+
+    result = validate_required_params(params, param_names, 'parameter')
+
+    assert result['param1'] == 'value1'
+    assert result['param2'] == 'value2'
 
 
 @patch('handler.read_s3_file')
@@ -628,12 +698,20 @@ def test_process_all_files_returns_zeros_when_no_files(mock_list_files, gp_feed_
 
 @patch('handler.get_feed_config')
 @patch('handler.process_all_files')
-@patch('handler.get_env_variables')
-def test_lambda_handler_returns_success_response(mock_get_env, mock_process_all, mock_get_feed_config, gp_feed_config):
-    mock_get_env.return_value = {
-        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda-function',
-        'KMS_KEY_ID': 'test-kms-key'
-    }
+@patch('handler.validate_required_params')
+def test_lambda_handler_returns_success_response(mock_validate_params, mock_process_all, mock_get_feed_config, gp_feed_config):
+    mock_validate_params.side_effect = [
+        {
+            'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda-function',
+            'KMS_KEY_ID': 'test-kms-key'
+        },
+        {
+            'input_s3_bucket': 'test-input-bucket',
+            'input_prefix': 'test-prefix/',
+            'output_s3_bucket': 'test-output-bucket',
+            'feed_type': 'gp'
+        }
+    ]
 
     mock_get_feed_config.return_value = gp_feed_config
 
@@ -666,12 +744,20 @@ def test_lambda_handler_returns_success_response(mock_get_env, mock_process_all,
 
 @patch('handler.get_feed_config')
 @patch('handler.process_all_files')
-@patch('handler.get_env_variables')
-def test_lambda_handler_returns_success_response_when_no_files(mock_get_env, mock_process_all, mock_get_feed_config, gp_feed_config):
-    mock_get_env.return_value = {
-        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda-function',
-        'KMS_KEY_ID': 'test-kms-key'
-    }
+@patch('handler.validate_required_params')
+def test_lambda_handler_returns_success_response_when_no_files(mock_validate_params, mock_process_all, mock_get_feed_config, gp_feed_config):
+    mock_validate_params.side_effect = [
+        {
+            'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda-function',
+            'KMS_KEY_ID': 'test-kms-key'
+        },
+        {
+            'input_s3_bucket': 'test-input-bucket',
+            'input_prefix': 'test-prefix/',
+            'output_s3_bucket': 'test-output-bucket',
+            'feed_type': 'gp'
+        }
+    ]
 
     mock_get_feed_config.return_value = gp_feed_config
 
@@ -699,9 +785,9 @@ def test_lambda_handler_returns_success_response_when_no_files(mock_get_env, moc
     assert body['total_records_input'] == 0
 
 
-@patch('handler.get_env_variables')
-def test_lambda_handler_returns_error_response_on_exception(mock_get_env):
-    mock_get_env.side_effect = ValueError('Missing required environment variables: PSEUDONYMISATION_LAMBDA_FUNCTION_NAME')
+@patch('handler.validate_required_params')
+def test_lambda_handler_returns_error_response_on_exception(mock_validate_params):
+    mock_validate_params.side_effect = ValueError('Missing required environment variables: PSEUDONYMISATION_LAMBDA_FUNCTION_NAME')
 
     event = {
         'input_s3_bucket': 'test-input-bucket',
@@ -720,12 +806,20 @@ def test_lambda_handler_returns_error_response_on_exception(mock_get_env):
 
 @patch('handler.get_feed_config')
 @patch('handler.process_all_files')
-@patch('handler.get_env_variables')
-def test_lambda_handler_sft_feed_success(mock_get_env, mock_process_all, mock_get_feed_config, sft_feed_config):
-    mock_get_env.return_value = {
-        'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda-function',
-        'KMS_KEY_ID': 'test-kms-key'
-    }
+@patch('handler.validate_required_params')
+def test_lambda_handler_sft_feed_success(mock_validate_params, mock_process_all, mock_get_feed_config, sft_feed_config):
+    mock_validate_params.side_effect = [
+        {
+            'PSEUDONYMISATION_LAMBDA_FUNCTION_NAME': 'test-lambda-function',
+            'KMS_KEY_ID': 'test-kms-key'
+        },
+        {
+            'input_s3_bucket': 'test-input-bucket',
+            'input_prefix': 'sft-prefix/',
+            'output_s3_bucket': 'test-output-bucket',
+            'feed_type': 'sft'
+        }
+    ]
 
     mock_get_feed_config.return_value = sft_feed_config
 

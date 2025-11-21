@@ -136,6 +136,112 @@ Handles scheduled polling of inbound PDS/DBS trace responses.
 
 ---
 
+## AWS Lambdas
+
+The project exposes two Lambdas both of which are deployed as Docker images - 
+
+* Linkage Service - intended to be used by Data pipelines. Returns a stable patient identifier (verified or temporary) so ingestion can continue without waiting for remote MPI lookups.
+* Verification Service - runs asynchronously sweeping up temporary patient records marking them as verified where appropriate
+
+### Linkage Service 
+
+#### Request/Response format
+
+**Request**
+```json
+    {
+        "patients": [
+            {
+                "nhs_number": "1234567890",
+                "first_name": "John",
+                "last_name": "Doe",
+                "postcode": "SW1A 1AA",
+                "dob": "1980-01-15",
+                "sex": "male"
+            }
+        ]
+    }
+```
+
+**Successful Response**
+
+```json
+    {
+      "message": "Patient Linking completed successfully",
+      "request_id": "<AWS request ID>",
+      "records_processed": 1,
+      "records_linked": 1,
+      "data": [
+          {
+              "nhs_number": "1234567890",
+              "first_name": "John",
+              "last_name": "Doe",
+              "postcode": "SW1A 1AA",
+              "dob": "1980-01-15",
+              "sex": "male",
+              "patient_ids": ["patient-id-1", "patient-id-2"]
+          },
+      ]
+    }
+```
+
+**Error Response**
+
+```json
+    {
+      "message": "Patient Linking Lambda execution failed",
+      "request_id": "<AWS request ID>"
+    }
+```
+
+#### Environment variables
+
+* `MPI_DB_HOST` - host name of the MPI database server
+* `MPI_DB_PORT` - port that the MPI database server is listening on (defaults to 5432)
+* `MPI_DB_NAME` - the name of the MPI database to connect to (defaults to ldp)
+* `MPI_DB_USERNAME_SECRET` - the name of the secret holding the MPI database username eg canonical_layer/db_user_name
+* `MPI_DB_PASSWORD_SECRET` - the name of the secret holding the MPI database password eg canonical_layer/db_user_password
+* `LOG_LEVEL` - an optional variable that alters the default log level of `INFO`. You must supply a valid log level for the Python logging library i.e. `CRITICAL`, `FATAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`
+
+For testing the `MPI_DB_USERNAME` and `MPI_DB_USERNAME` variables can be set instead of the `*_SECRET` equivalents but this is not recommended for production
+
+### Verification Service 
+TODO
+
+#### Environment variables
+
+
+### Building the Docker image
+
+For local development and testing -
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  --provenance=false \
+  -t [service-name]:latest \
+  -f patient/[service-name]/aws/lambda/Dockerfile .
+```
+
+Smoke testing the image- 
+```bash
+docker run -d --platform linux/amd64 -p 9000:8080 [service-name]:latest
+
+curl "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{}'
+```
+
+#### Corporate Network Build (ZScaler)
+When building behind corporate firewalls or proxies, include SSL certificates:
+Note that the secret id must be named `ssl-certs` and points to the path of your corporate SSL cert
+
+```bash
+docker buildx build \
+  --secret id=ssl-certs,src=/etc/ssl/certs/ca-certificates.crt \
+  --platform linux/amd64 \
+  --provenance=false \
+  -t [service-name]:latest \
+  -f patient/[service-name]/aws/lambda/Dockerfile .
+```
+
 ## Current Implementation Focus
 
 This phase delivers:

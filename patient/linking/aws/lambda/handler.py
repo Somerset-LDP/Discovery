@@ -25,7 +25,8 @@ def lambda_handler(event, context):
     """
     AWS Lambda handler for patient linking requests.
     
-    Expected event format:
+    Expected event format (note that all values are optional but the more values that are provided,
+    the better the matching accuracy):
     {
         "patients": [
             {
@@ -39,6 +40,32 @@ def lambda_handler(event, context):
             ...
         ]
     }
+
+    Returns a response dict with statusCode and body containing the results. 
+    The result body includes the original patient data with an added 'patient_ids' field listing 
+    matched patient IDs. This could be multiple patient IDs if the patient data matches more 
+    than one record. If no matches are found, 'patient_ids' will be an empty list:
+    {
+        "statusCode": 200,
+        "body": {
+            "message": "Patient Linking completed successfully",
+            "request_id": "<AWS request ID>",
+            "records_processed": <number of records processed>,
+            "records_linked": <number of records linked>,
+            "data": [
+                {
+                    "nhs_number": "1234567890",
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "postcode": "SW1A 1AA",
+                    "dob": "1980-01-15",
+                    "sex": "male",
+                    "patient_ids": ["patient-id-1", "patient-id-2"]
+                },
+                ...
+            ]
+        }
+    }
     """
 
     try:
@@ -46,6 +73,8 @@ def lambda_handler(event, context):
         logger.info(f"Event: {event}")
 
         df = _to_dataframe(event)
+
+        logger.info(f"Processing {len(df)} patient records")
 
         mpi_db_url = _get_mpi_db_url()
         if mpi_db_url:

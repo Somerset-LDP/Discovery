@@ -29,14 +29,14 @@ class PatientRepository:
         
         return patient_ids
 
-    def find_patients(self, queries: pd.DataFrame, matcher: Optional[PatientMatchingStrategy] = None) -> List[Optional[List[str]]]:
+    def find_patients(self, queries: pd.DataFrame, matcher: Optional[PatientMatchingStrategy] = None) -> List[List[str]]:
         if queries.empty:
             return []
         
         if matcher is None:
             matcher = self.default_matcher
 
-        return matcher.find_matches(queries)  
+        return matcher.find_matches(queries)
 
     def _insert_patients(self, patients: pd.DataFrame, conn: Connection) -> List[str]:
         """Insert a batch of patients and return their IDs."""

@@ -1,27 +1,24 @@
-# patient/mpi/matching_strategy.py
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List
 import pandas as pd
 
 class PatientMatchingStrategy(ABC):
-    """Abstract base class for patient matching strategies."""
-    
     @abstractmethod
-    def find_matches(self, queries: pd.DataFrame) -> List[Optional[List[str]]]:
+    def find_matches(self, queries: pd.DataFrame) -> List[List[str]]:
         """
-        Find matching patients using this strategy.
-        Strategy has full control - can query database directly or load into memory.
+        Find patient records matching the provided query data.
         
         Args:
-            queries: DataFrame with search criteria (cleaned)
+            queries: DataFrame with patient search criteria
             
         Returns:
-            List of lists of patient IDs (or None if no match)
+            List of lists of patient IDs. Empty list for no matches.
+            Length must equal len(queries).
         """
         pass
 
 class SplinkMatchStrategy(PatientMatchingStrategy):
     """Patient matching using Splink probabilistic matching."""
     
-    def find_matches(self, queries: pd.DataFrame) -> List[Optional[List[str]]]:
+    def find_matches(self, queries: pd.DataFrame) -> List[List[str]]:
         return []  # TODO: implement Splink matching logic

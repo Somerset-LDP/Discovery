@@ -10,7 +10,7 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
     def __init__(self, engine: Engine):
         self.engine = engine
     
-    def find_matches(self, queries: pd.DataFrame) -> List[Optional[List[str]]]:
+    def find_matches(self, queries: pd.DataFrame) -> List[List[str]]:
         """
         Find patient records matching the provided query data.
         
@@ -19,10 +19,8 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
                     Expected columns: nhs_number, dob, postcode, first_name, last_name, sex
             
         Returns:
-            List of lists of internal patient IDs (or None if no match), same length as queries DataFrame.
-            Each element is either:
-            - None (no matches found)
-            - List[str] (one or more patient IDs that matched)
+            List of lists of internal patient IDs (empty list if no match), same length as queries DataFrame.
+            Each element is a List[str] containing zero or more patient IDs.
         """
         if queries.empty:
             return []
@@ -72,15 +70,15 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
                 'sexes': sexes
             }).fetchall()
         
-        # Group results by row index
-        results: List[Optional[List[str]]] = [None] * len(queries)
+        # Group results by row index - initialize with empty lists instead of None
+        results: List[List[str]] = [[] for _ in range(len(queries))]
         current_row_idx = None
         current_matches = []
         
         for row_idx, patient_id in result_rows:
             if row_idx != current_row_idx:
                 # Save previous row's matches
-                if current_row_idx is not None and current_matches:
+                if current_row_idx is not None:
                     results[current_row_idx] = current_matches
                 # Start new row
                 current_row_idx = row_idx
@@ -91,7 +89,7 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
                 current_matches.append(patient_id)
         
         # Don't forget the last row
-        if current_row_idx is not None and current_matches:
+        if current_row_idx is not None:
             results[current_row_idx] = current_matches
         
         return results

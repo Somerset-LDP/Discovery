@@ -118,8 +118,13 @@ def _clean_sex(sex) -> Optional[str]:
         sex = str(sex)
     
     # Standardize: lowercase and strip
-    return sex.lower().strip()
-
+    standardized = sex.lower().strip()
+    
+    # Validate: not empty after stripping
+    if not standardized:
+        return None
+    
+    return standardized
 
 def _clean_dob(dob):
     """Standardize and validate date of birth.

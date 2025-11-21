@@ -11,8 +11,6 @@ UK_POSTCODE_PATTERN = re.compile(
     re.IGNORECASE
 )
 
-VALID_SEX_VALUES = ['Male', 'Female', 'Indeterminate']
-
 
 def is_valid_string(value: Union[str, None]) -> bool:
     if value is None:
@@ -22,11 +20,11 @@ def is_valid_string(value: Union[str, None]) -> bool:
     return bool(value.strip())
 
 
-def is_valid_gender(gender: Union[str, None]) -> bool:
+def is_valid_gender(gender: Union[str, None], valid_sex_values: List[str]) -> bool:
     if not is_valid_string(gender):
         return False
 
-    return gender.strip() in VALID_SEX_VALUES
+    return gender.strip() in valid_sex_values
 
 
 def is_valid_nhs_number(nhs_number: Union[str, int, None]) -> bool:
@@ -62,47 +60,57 @@ def is_valid_uk_postcode(postcode: Union[str, None]) -> bool:
     return UK_POSTCODE_PATTERN.match(postcode.strip()) is not None
 
 
-def is_valid_date_of_birth(date_of_birth: Union[str, None]) -> bool:
-    """
-    Format: DD-MMM-YY (e.g., 15-Jan-85).
-    """
+def is_valid_date_of_birth(date_of_birth: Union[str, None], validation_dob_format: str) -> bool:
     if not is_valid_string(date_of_birth):
         return False
 
     try:
-        pd.to_datetime(date_of_birth.strip(), format='%d-%b-%y', errors='raise')
+        pd.to_datetime(date_of_birth.strip(), format=validation_dob_format, errors='raise')
         return True
     except (ValueError, TypeError):
         return False
 
 
-def validate_record(row: pd.Series) -> Tuple[bool, str]:
-    if not is_valid_nhs_number(row.get('NHS Number')):
-        return False, "Invalid NHS Number"
+def validate_record(
+        row: pd.Series,
+        validation_rules: Dict[str, Any], 
+        fields_to_pseudonymise: Dict[str, str]
+) -> Tuple[bool, str]:
+    for column_name, field_type in fields_to_pseudonymise.items():
+        value = row.get(column_name)
 
-    if not is_valid_string(row.get('Given Name')):
-        return False, "Invalid Given Name"
+        if field_type == 'nhs_number':
+            if not is_valid_nhs_number(value):
+                return False, f"Invalid {column_name}"
 
-    if not is_valid_string(row.get('Family Name')):
-        return False, "Invalid Family Name"
+        elif field_type in ('given_name', 'first_name', 'family_name', 'last_name'):
+            if not is_valid_string(value):
+                return False, f"Invalid {column_name}"
 
-    if not is_valid_date_of_birth(row.get('Date of Birth')):
-        return False, "Invalid Date of Birth"
+        elif field_type == 'date_of_birth':
+            if not is_valid_date_of_birth(value, validation_rules.get("valid_date_format")):
+                return False, f"Invalid {column_name}"
 
-    if not is_valid_gender(row.get('Gender')):
-        return False, "Invalid Gender"
+        elif field_type in ('gender', 'sex'):
+            if not is_valid_gender(value, validation_rules.get("valid_sex_values")):
+                return False, f"Invalid {column_name}"
 
-    if 'Postcode' in row.index and not is_valid_uk_postcode(row.get('Postcode')):
-        return False, "Invalid Postcode"
+        elif field_type == 'postcode':
+            if column_name in row.index and not is_valid_uk_postcode(value):
+                return False, f"Invalid {column_name}"
 
     return True, ""
 
 
-def validate_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+def validate_dataframe(
+        df: pd.DataFrame,
+        validation_rules: Dict[str, Any],
+        fields_to_pseudonymise: Dict[str, str]
+) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     initial_count = len(df)
     logger.info(f"Starting validation of {initial_count} records")
 
-    required_columns = ['NHS Number', 'Given Name', 'Family Name', 'Date of Birth', 'Gender', 'Postcode']
+    required_columns = list(fields_to_pseudonymise.keys())
     missing_columns = [col for col in required_columns if col not in df.columns]
 
     if missing_columns:
@@ -114,7 +122,7 @@ def validate_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str, A
     invalid_records = []
 
     for idx, row in df.iterrows():
-        is_valid, error_message = validate_record(row)
+        is_valid, error_message = validate_record(row, validation_rules, fields_to_pseudonymise)
 
         if is_valid:
             valid_indices.append(idx)

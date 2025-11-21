@@ -35,7 +35,8 @@ def test_is_valid_string(value, expected):
     ],
 )
 def test_is_valid_gender(gender, expected):
-    assert is_valid_gender(gender) == expected
+    valid_sex_values = ['Male', 'Female', 'Indeterminate']
+    assert is_valid_gender(gender, valid_sex_values) == expected
 
 
 @pytest.mark.parametrize(
@@ -71,12 +72,14 @@ def test_is_valid_uk_postcode(postcode, expected):
     ],
 )
 def test_is_valid_date_of_birth(date_of_birth, expected):
-    assert is_valid_date_of_birth(date_of_birth) == expected
+    validation_dob_format = "%d-%b-%y"
+    assert is_valid_date_of_birth(date_of_birth, validation_dob_format) == expected
 
 
 @pytest.mark.parametrize(
-    "row_data,expected_valid,expected_error",
+    "row_data,expected_valid,expected_error,validation_rules,fields_to_pseudonymise",
     [
+        # GP Feed tests
         (
                 {
                     'NHS Number': '9434765919',
@@ -87,7 +90,19 @@ def test_is_valid_date_of_birth(date_of_birth, expected):
                     'Postcode': 'SW1A 1AA'
                 },
                 True,
-                ""
+                "",
+                {
+                    "valid_sex_values": ['Male', 'Female', 'Indeterminate'],
+                    "valid_date_format": "%d-%b-%y"
+                },
+                {
+                    'NHS Number': 'nhs_number',
+                    'Given Name': 'given_name',
+                    'Family Name': 'family_name',
+                    'Date of Birth': 'date_of_birth',
+                    'Gender': 'gender',
+                    'Postcode': 'postcode'
+                }
         ),
         (
                 {
@@ -99,7 +114,19 @@ def test_is_valid_date_of_birth(date_of_birth, expected):
                     'Postcode': 'SW1A 1AA'
                 },
                 False,
-                "Invalid NHS Number"
+                "Invalid NHS Number",
+                {
+                    "valid_sex_values": ['Male', 'Female', 'Indeterminate'],
+                    "valid_date_format": "%d-%b-%y"
+                },
+                {
+                    'NHS Number': 'nhs_number',
+                    'Given Name': 'given_name',
+                    'Family Name': 'family_name',
+                    'Date of Birth': 'date_of_birth',
+                    'Gender': 'gender',
+                    'Postcode': 'postcode'
+                }
         ),
         (
                 {
@@ -111,20 +138,82 @@ def test_is_valid_date_of_birth(date_of_birth, expected):
                     'Postcode': 'SW1A 1AA'
                 },
                 False,
-                "Invalid Given Name"
+                "Invalid Given Name",
+                {
+                    "valid_sex_values": ['Male', 'Female', 'Indeterminate'],
+                    "valid_date_format": "%d-%b-%y"
+                },
+                {
+                    'NHS Number': 'nhs_number',
+                    'Given Name': 'given_name',
+                    'Family Name': 'family_name',
+                    'Date of Birth': 'date_of_birth',
+                    'Gender': 'gender',
+                    'Postcode': 'postcode'
+                }
+        ),
+        # SFT Feed tests
+        (
+                {
+                    'nhs_number': '9434765919',
+                    'first_name': 'John',
+                    'last_name': 'Doe',
+                    'date_of_birth': '1985-01-15',
+                    'sex': '1',
+                    'postcode': 'SW1A 1AA'
+                },
+                True,
+                "",
+                {
+                    "valid_sex_values": ['1', '2', '9'],
+                    "valid_date_format": "%Y-%m-%d"
+                },
+                {
+                    'nhs_number': 'nhs_number',
+                    'first_name': 'first_name',
+                    'last_name': 'last_name',
+                    'date_of_birth': 'date_of_birth',
+                    'sex': 'sex',
+                    'postcode': 'postcode'
+                }
+        ),
+        (
+                {
+                    'nhs_number': '1234567890',
+                    'first_name': 'John',
+                    'last_name': 'Doe',
+                    'date_of_birth': '1985-01-15',
+                    'sex': '1',
+                    'postcode': 'SW1A 1AA'
+                },
+                False,
+                "Invalid nhs_number",
+                {
+                    "valid_sex_values": ['1', '2', '9'],
+                    "valid_date_format": "%Y-%m-%d"
+                },
+                {
+                    'nhs_number': 'nhs_number',
+                    'first_name': 'first_name',
+                    'last_name': 'last_name',
+                    'date_of_birth': 'date_of_birth',
+                    'sex': 'sex',
+                    'postcode': 'postcode'
+                }
         ),
     ],
 )
-def test_validate_record(row_data, expected_valid, expected_error):
+def test_validate_record(row_data, expected_valid, expected_error, validation_rules, fields_to_pseudonymise):
     row = pd.Series(row_data)
-    is_valid, error_message = validate_record(row)
+    is_valid, error_message = validate_record(row, validation_rules, fields_to_pseudonymise)
     assert is_valid == expected_valid
     assert error_message == expected_error
 
 
 @pytest.mark.parametrize(
-    "df_data,expected_valid_count,expected_invalid_count",
+    "df_data,expected_valid_count,expected_invalid_count,validation_rules,fields_to_pseudonymise",
     [
+        # GP Feed - all valid
         (
                 [
                     {
@@ -145,8 +234,21 @@ def test_validate_record(row_data, expected_valid, expected_error):
                     },
                 ],
                 2,
-                0
+                0,
+                {
+                    "valid_sex_values": ['Male', 'Female', 'Indeterminate'],
+                    "valid_date_format": "%d-%b-%y"
+                },
+                {
+                    'NHS Number': 'nhs_number',
+                    'Given Name': 'given_name',
+                    'Family Name': 'family_name',
+                    'Date of Birth': 'date_of_birth',
+                    'Gender': 'gender',
+                    'Postcode': 'postcode'
+                }
         ),
+        # GP Feed - one invalid NHS
         (
                 [
                     {
@@ -167,8 +269,21 @@ def test_validate_record(row_data, expected_valid, expected_error):
                     },
                 ],
                 1,
-                1
+                1,
+                {
+                    "valid_sex_values": ['Male', 'Female', 'Indeterminate'],
+                    "valid_date_format": "%d-%b-%y"
+                },
+                {
+                    'NHS Number': 'nhs_number',
+                    'Given Name': 'given_name',
+                    'Family Name': 'family_name',
+                    'Date of Birth': 'date_of_birth',
+                    'Gender': 'gender',
+                    'Postcode': 'postcode'
+                }
         ),
+        # GP Feed - all invalid names
         (
                 [
                     {
@@ -189,12 +304,94 @@ def test_validate_record(row_data, expected_valid, expected_error):
                     },
                 ],
                 0,
-                2
+                2,
+                {
+                    "valid_sex_values": ['Male', 'Female', 'Indeterminate'],
+                    "valid_date_format": "%d-%b-%y"
+                },
+                {
+                    'NHS Number': 'nhs_number',
+                    'Given Name': 'given_name',
+                    'Family Name': 'family_name',
+                    'Date of Birth': 'date_of_birth',
+                    'Gender': 'gender',
+                    'Postcode': 'postcode'
+                }
+        ),
+        # SFT Feed - all valid
+        (
+                [
+                    {
+                        'nhs_number': '9434765919',
+                        'first_name': 'John',
+                        'last_name': 'Doe',
+                        'date_of_birth': '1985-01-15',
+                        'sex': '1',
+                        'postcode': 'SW1A 1AA'
+                    },
+                    {
+                        'nhs_number': '8314495581',
+                        'first_name': 'Jane',
+                        'last_name': 'Smith',
+                        'date_of_birth': '1990-02-20',
+                        'sex': '2',
+                        'postcode': 'M1 1AA'
+                    },
+                ],
+                2,
+                0,
+                {
+                    "valid_sex_values": ['1', '2', '9'],
+                    "valid_date_format": "%Y-%m-%d"
+                },
+                {
+                    'nhs_number': 'nhs_number',
+                    'first_name': 'first_name',
+                    'last_name': 'last_name',
+                    'date_of_birth': 'date_of_birth',
+                    'sex': 'sex',
+                    'postcode': 'postcode'
+                }
+        ),
+        # SFT Feed - one invalid NHS
+        (
+                [
+                    {
+                        'nhs_number': '1234567890',
+                        'first_name': 'John',
+                        'last_name': 'Doe',
+                        'date_of_birth': '1985-01-15',
+                        'sex': '1',
+                        'postcode': 'SW1A 1AA'
+                    },
+                    {
+                        'nhs_number': '8314495581',
+                        'first_name': 'Jane',
+                        'last_name': 'Smith',
+                        'date_of_birth': '1990-02-20',
+                        'sex': '2',
+                        'postcode': 'M1 1AA'
+                    },
+                ],
+                1,
+                1,
+                {
+                    "valid_sex_values": ['1', '2', '9'],
+                    "valid_date_format": "%Y-%m-%d"
+                },
+                {
+                    'nhs_number': 'nhs_number',
+                    'first_name': 'first_name',
+                    'last_name': 'last_name',
+                    'date_of_birth': 'date_of_birth',
+                    'sex': 'sex',
+                    'postcode': 'postcode'
+                }
         ),
     ],
 )
-def test_validate_dataframe(df_data, expected_valid_count, expected_invalid_count):
+def test_validate_dataframe(df_data, expected_valid_count, expected_invalid_count, validation_rules, fields_to_pseudonymise):
     df = pd.DataFrame(df_data)
-    valid_df, invalid_records = validate_dataframe(df)
+    valid_df, invalid_records = validate_dataframe(df, validation_rules, fields_to_pseudonymise)
     assert len(valid_df) == expected_valid_count
     assert len(invalid_records) == expected_invalid_count

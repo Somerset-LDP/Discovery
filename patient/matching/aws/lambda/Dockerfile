@@ -15,23 +15,22 @@ RUN --mount=type=secret,id=ssl-certs \
     echo "Using cert: $PIP_CERT" && \
     pip install ${PIP_CERT:+--cert $PIP_CERT} --no-cache-dir -r requirements.txt
 
-# Copy linking module
-COPY patient/linking/__init__.py ./linking/
-COPY patient/linking/service.py ./linking/
-COPY patient/linking/patient.py ./linking/
-COPY patient/linking/matchers.py ./linking/
+# Copy matching module
+COPY patient/matching/__init__.py ./matching/
+COPY patient/matching/service.py ./matching/
+COPY patient/matching/patient.py ./matching/
+COPY patient/matching/matchers.py ./matching/
 
 # Copy mpi module
 COPY patient/mpi/__init__.py ./mpi/
 COPY patient/mpi/matching.py ./mpi/
-COPY patient/mpi/local/__init__.py ./mpi/local/
 COPY patient/mpi/local/repository.py ./mpi/local/
 COPY patient/mpi/local/matching.py ./mpi/local/
 COPY patient/mpi/pds/asynchronous/request/__init__.py ./mpi/pds/asynchronous/request/
 COPY patient/mpi/pds/asynchronous/request/client.py ./mpi/pds/asynchronous/request/
 
 # Copy the Lambda handler
-COPY patient/linking/aws/lambda/handler.py .
+COPY patient/matching/aws/lambda/handler.py .
 
 # Set the Lambda handler
 CMD ["handler.lambda_handler"]

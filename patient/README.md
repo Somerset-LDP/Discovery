@@ -1,4 +1,4 @@
-# Patient Services — Linking, Matching & Verification
+# Patient Services — Matching & Verification
 
 This module contains functionality for patient identity resolution within the platform.  
 It supports:
@@ -136,6 +136,42 @@ Handles scheduled polling of inbound PDS/DBS trace responses.
 
 ---
 
+## Database
+
+TODO - migrations
+
+<migration_time_in_UTC>__<short_action_description>.sql
+
+
+verb ∈ {create, add, alter, rename, drop, delete, update}
+
+object ∈ {table, column, index, constraint, fk, pk, enum, view, data}
+
+| Verb     | When to use                                |
+| -------- | ------------------------------------------ |
+| `create` | New table, index, constraint               |
+| `add`    | Adding column, index, constraint           |
+| `alter`  | Changing column type, nullability, default |
+| `rename` | Renaming table or column                   |
+| `drop`   | Removing table, column, index, constraint  |
+| `update` | Modifying reference or seed data           |
+| `delete` | Removing seed/test/reference data          |
+
+
+detail describes the specific target
+
+create_table_patient
+add_column_patient_dob
+alter_column_appointment_status_type
+rename_table_maternity_case_to_birth_record
+drop_index_patient_lastname
+add_fk_patient_gp_id
+update_data_reference_status_codes
+delete_data_test_records
+
+
+---
+
 ## AWS Lambdas
 
 The project exposes two Lambdas both of which are deployed as Docker images - 
@@ -199,6 +235,7 @@ The project exposes two Lambdas both of which are deployed as Docker images -
 * `MPI_DB_HOST` - host name of the MPI database server
 * `MPI_DB_PORT` - port that the MPI database server is listening on (defaults to 5432)
 * `MPI_DB_NAME` - the name of the MPI database to connect to (defaults to ldp)
+* `MPI_SCHEMA_NAME` - the name of the MPI schema (defaults to mpi)
 * `MPI_DB_USERNAME_SECRET` - the name of the secret holding the MPI database username eg canonical_layer/db_user_name
 * `MPI_DB_PASSWORD_SECRET` - the name of the secret holding the MPI database password eg canonical_layer/db_user_password
 * `LOG_LEVEL` - an optional variable that alters the default log level of `INFO`. You must supply a valid log level for the Python logging library i.e. `CRITICAL`, `FATAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`
@@ -238,8 +275,8 @@ docker buildx build \
   --secret id=ssl-certs,src=/etc/ssl/certs/ca-certificates.crt \
   --platform linux/amd64 \
   --provenance=false \
-  -t [service-name]:latest \
-  -f patient/[service-name]/aws/lambda/Dockerfile .
+  -t patient-[service]:latest \
+  -f patient/[service]/aws/lambda/Dockerfile .
 ```
 
 ## Current Implementation Focus

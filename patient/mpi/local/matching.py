@@ -37,19 +37,19 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
         query = text("""
             WITH query_data AS (
                 SELECT 
-                    unnest(:row_indices::INTEGER[]) as row_idx,
-                    unnest(:nhs_numbers::TEXT[]) as nhs_number,
-                    unnest(:dobs::TEXT[]) as dob,
-                    unnest(:postcodes::TEXT[]) as postcode,
-                    unnest(:first_names::TEXT[]) as first_name,
-                    unnest(:last_names::TEXT[]) as last_name,
-                    unnest(:sexes::TEXT[]) as sex
+                    unnest(CAST(:row_indices AS INTEGER[])) as row_idx,
+                    unnest(CAST(:nhs_numbers AS TEXT[])) as nhs_number,
+                    unnest(CAST(:dobs AS TEXT[])) as dob,
+                    unnest(CAST(:postcodes AS TEXT[])) as postcode,
+                    unnest(CAST(:first_names AS TEXT[])) as first_name,
+                    unnest(CAST(:last_names AS TEXT[])) as last_name,
+                    unnest(CAST(:sexes AS TEXT[])) as sex
             )
             SELECT 
                 tqd.row_idx, 
                 p.patient_id
             FROM query_data tqd
-            LEFT JOIN canonical.patient p ON
+            LEFT JOIN patient p ON
                 (tqd.nhs_number IS NULL OR p.nhs_number = tqd.nhs_number)
                 AND (tqd.dob IS NULL OR p.date_of_birth = tqd.dob)
                 AND (tqd.postcode IS NULL OR p.postcode = tqd.postcode)
@@ -58,7 +58,7 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
                 AND (tqd.sex IS NULL OR p.sex = tqd.sex)
             ORDER BY tqd.row_idx, p.patient_id
         """)
-        
+
         with self.engine.connect() as conn:
             result_rows = conn.execute(query, {
                 'row_indices': row_indices,

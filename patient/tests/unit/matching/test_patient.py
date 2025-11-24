@@ -15,20 +15,20 @@ def test_clean_patient_with_valid_nhs_number_with_spaces():
     """Test valid NHS number with spaces is standardized."""
     df = pd.DataFrame([{
         'nhs_number': '943 476 5919',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
     
     assert result.loc[0, 'nhs_number'] == '9434765919'  # Spaces removed
-    assert result.loc[0, 'dob'] == date(1980, 5, 15)
+    assert result.loc[0, 'dob'] == "1980-05-15"
 
 
 def test_clean_patient_with_invalid_nhs_number_checksum():
     """Test NHS number with invalid check digit is set to None."""
     df = pd.DataFrame([{
         'nhs_number': '9434765910',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -40,7 +40,7 @@ def test_clean_patient_with_nhs_number_too_short():
     """Test NHS number with fewer than 10 digits is set to None."""
     df = pd.DataFrame([{
         'nhs_number': '943476591',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -52,7 +52,7 @@ def test_clean_patient_with_nhs_number_too_long():
     """Test NHS number with more than 10 digits is set to None."""
     df = pd.DataFrame([{
         'nhs_number': '94347659199',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -64,7 +64,7 @@ def test_clean_patient_with_non_numeric_nhs_number():
     """Test NHS number with non-numeric characters is set to None."""
     df = pd.DataFrame([{
         'nhs_number': 'abcdefghij',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -76,7 +76,7 @@ def test_clean_patient_with_empty_nhs_number():
     """Test empty string NHS number is set to None."""
     df = pd.DataFrame([{
         'nhs_number': '',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -101,7 +101,7 @@ def test_clean_patient_with_valid_postcodes(postcode, expected):
         'last_name': 'Smith',
         'sex': 'male',
         'postcode': postcode,
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -116,7 +116,7 @@ def test_clean_patient_with_invalid_postcode_format():
         'last_name': 'Smith',
         'sex': 'male',
         'postcode': 'INVALID',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -131,7 +131,7 @@ def test_clean_patient_with_empty_postcode():
         'last_name': 'Smith',
         'sex': 'male',
         'postcode': '',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -148,7 +148,7 @@ def test_clean_patient_with_valid_names():
         'last_name': 'smith',
         'sex': 'male',
         'postcode': 'SW1A 1AA',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -164,7 +164,7 @@ def test_clean_patient_with_multi_word_names():
         'last_name': 'smith-jones',
         'sex': 'female',
         'postcode': 'SW1A 1AA',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -180,7 +180,7 @@ def test_clean_patient_with_empty_first_name():
         'last_name': 'Smith',
         'sex': 'male',
         'postcode': 'SW1A 1AA',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -195,7 +195,7 @@ def test_clean_patient_with_whitespace_first_name():
         'last_name': 'Smith',
         'sex': 'male',
         'postcode': 'SW1A 1AA',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -210,7 +210,7 @@ def test_clean_patient_with_empty_last_name():
         'last_name': '',
         'sex': 'male',
         'postcode': 'SW1A 1AA',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -225,7 +225,7 @@ def test_clean_patient_with_whitespace_last_name():
         'last_name': '   ',
         'sex': 'male',
         'postcode': 'SW1A 1AA',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -242,7 +242,7 @@ def test_clean_patient_with_sex_standardization():
         'last_name': 'Smith',
         'sex': 'MALE',
         'postcode': 'SW1A 1AA',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
@@ -256,24 +256,26 @@ def test_clean_patient_with_past_date_of_birth():
     """Test date in the past is preserved."""
     df = pd.DataFrame([{
         'nhs_number': '9434765919',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
     
-    assert result.loc[0, 'dob'] == date(1980, 5, 15)
+    assert result.loc[0, 'dob'] == "1980-05-15"
 
 
 def test_clean_patient_with_today_date_of_birth():
     """Test today's date is preserved."""
+    today = date.today().isoformat()
+    
     df = pd.DataFrame([{
         'nhs_number': '9434765919',
-        'dob': date.today()
+        'dob': today
     }])
     
     result = clean_patient(df)
     
-    assert result.loc[0, 'dob'] == date.today()
+    assert result.loc[0, 'dob'] == today
 
 
 def test_clean_patient_with_future_date_of_birth():
@@ -291,7 +293,7 @@ def test_clean_patient_with_future_date_of_birth():
 
 def test_clean_patient_with_tomorrow_date_of_birth():
     """Test tomorrow's date is set to None."""
-    tomorrow = date.today() + timedelta(days=1)
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
     df = pd.DataFrame([{
         'nhs_number': '9434765919',
         'dob': tomorrow
@@ -309,7 +311,7 @@ def test_clean_patient_with_multiple_rows():
     df = pd.DataFrame([
         {
             'nhs_number': '943 476 5919',
-            'dob': date(1980, 5, 15),
+            'dob': "1980-05-15",
             'first_name': 'john',
             'last_name': 'smith',
             'sex': 'MALE',
@@ -347,7 +349,7 @@ def test_clean_patient_with_mixed_valid_invalid_rows():
     df = pd.DataFrame([
         {
             'nhs_number': '9434765919',  # Valid
-            'dob': date(1980, 5, 15)
+            'dob': "1980-05-15"
         },
         {
             'nhs_number': '1234567890',  # Invalid checksum
@@ -367,7 +369,7 @@ def test_clean_patient_with_nan_values():
     """Test that NaN values are converted to None."""
     df = pd.DataFrame([{
         'nhs_number': '9434765919',
-        'dob': date(1980, 5, 15),
+        'dob': "1980-05-15",
         'first_name': np.nan,
         'last_name': 'Smith',
         'sex': np.nan,
@@ -400,11 +402,11 @@ def test_clean_patient_with_subset_of_columns():
     """Test cleaning DataFrame with only some columns present."""
     df = pd.DataFrame([{
         'nhs_number': '943 476 5919',
-        'dob': date(1980, 5, 15)
+        'dob': "1980-05-15"
     }])
     
     result = clean_patient(df)
     
     assert result.loc[0, 'nhs_number'] == '9434765919'
-    assert result.loc[0, 'dob'] == date(1980, 5, 15)
+    assert result.loc[0, 'dob'] == "1980-05-15"
     assert 'first_name' not in result.columns

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 import pandas as pd
@@ -134,15 +134,19 @@ def _clean_dob(dob):
     if dob is None or pd.isna(dob):
         return None
     
-    # Handle both datetime.date and pandas Timestamp
-    if isinstance(dob, pd.Timestamp):
-        dob_date = dob.date()
-    else:
-        dob_date = dob
+    if not isinstance(dob, str):
+        return None    
     
-    # Validate: not in the future
-    if dob_date > date.today():
+    # Validate: parse as date
+    try:
+        dob_date = datetime.strptime(dob, "%Y-%m-%d").date()
+
+        # Validate: not in the future
+        if dob_date > date.today():
+            return None
+    except (ValueError, TypeError):
         return None
+    
     
     return dob
 

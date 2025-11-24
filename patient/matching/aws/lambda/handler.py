@@ -189,6 +189,7 @@ def _get_mpi_db_url() -> str | None:
     DB_HOST = os.environ.get("MPI_DB_HOST")
     DB_PORT = os.environ.get("MPI_DB_PORT", "5432")
     DB_NAME = os.environ.get("MPI_DB_NAME", "ldp")
+    DB_SCHEMA = os.environ.get("MPI_SCHEMA_NAME", "mpi")
 
     username, password = _get_db_credentials()
 
@@ -196,4 +197,4 @@ def _get_mpi_db_url() -> str | None:
         logger.error(f"Missing environment variables or credentials for database URL")
         return None
 
-    return f"postgresql+psycopg2://{username}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    return f"postgresql+psycopg2://{username}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}?options=-c%20search_path={DB_SCHEMA},public"

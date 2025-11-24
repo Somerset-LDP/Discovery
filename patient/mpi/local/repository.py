@@ -42,7 +42,7 @@ class PatientRepository:
         """Insert a batch of patients and return their IDs."""
         
         result = conn.execute(text("""
-            INSERT INTO canonical.patient (
+            INSERT INTO patient (
                 nhs_number, given_name, family_name,
                 date_of_birth, postcode, sex,
                 verified, created_at, updated_at

@@ -3,7 +3,7 @@
 This module contains functionality for patient identity resolution within the platform.  
 It supports:
 
-- **Synchronous patient linking** for ingestion pipelines  
+- **Synchronous patient matching** for ingestion pipelines  
 - **Asynchronous patient verification** using remote MPI responses  
 - **Local and (future) remote MPI abstractions**  
 - A clean separation between AWS Lambda handlers and domain logic
@@ -17,9 +17,9 @@ The structure is designed so each functional area can be deployed independently 
 ```text
 patient/
 │
-├─ linking/
+├─ matching/
 │   ├─ aws/lambda/handler.py         # Synchronous Lambda entrypoint
-│   ├─ service.py                    # Linking orchestration
+│   ├─ service.py                    # Matching orchestration
 │   └─ matchers.py                   # Strict/fuzzy/probabilistic matching
 │
 ├─ verification/
@@ -44,9 +44,9 @@ patient/
 
 ---
 
-## 1. Linking Service (`linking/`)
+## 1. Matching Service (`matching/`)
 
-Provides *synchronous* patient linking during ingestion.  
+Provides *synchronous* patient matching during ingestion.  
 Returns a stable patient identifier (verified or temporary) so ingestion can continue without waiting for remote MPI lookups.
 
 ### `aws/lambda/handler.py`
@@ -55,7 +55,7 @@ Returns a stable patient identifier (verified or temporary) so ingestion can con
 - Contains no business logic.
 
 ### `service.py`
-- Orchestrates patient linking.
+- Orchestrates patient matching.
 - Performs:
   - Local MPI lookup
   - Invocation of matching algorithms
@@ -140,10 +140,10 @@ Handles scheduled polling of inbound PDS/DBS trace responses.
 
 The project exposes two Lambdas both of which are deployed as Docker images - 
 
-* Linkage Service - intended to be used by Data pipelines. Returns a stable patient identifier (verified or temporary) so ingestion can continue without waiting for remote MPI lookups.
+* Matching Service - intended to be used by Data pipelines. Returns a stable patient identifier (verified or temporary) so ingestion can continue without waiting for remote MPI lookups.
 * Verification Service - runs asynchronously sweeping up temporary patient records marking them as verified where appropriate
 
-### Linkage Service 
+### Matching Service 
 
 #### Request/Response format
 
@@ -170,7 +170,7 @@ The project exposes two Lambdas both of which are deployed as Docker images -
       "message": "Patient Linking completed successfully",
       "request_id": "<AWS request ID>",
       "records_processed": 1,
-      "records_linked": 1,
+      "records_matched": 1,
       "data": [
           {
               "nhs_number": "1234567890",
@@ -246,7 +246,7 @@ docker buildx build \
 
 This phase delivers:
 
-1. **Linking service (synchronous)**  
+1. **Matching service (synchronous)**  
 2. **Verification service (asynchronous)**  
 3. **Local MPI repository**  
 4. **Stub async PDS request/response structure** (no real integration)

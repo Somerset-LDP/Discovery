@@ -1,11 +1,8 @@
 """
-Core Patient Linking Service.
+Core Patient Matching Service.
 Responsible for orchestrating matching logic and interacting with MPI.
 """
-from datetime import date
-from enum import Enum
-from typing import Optional
-import re
+
 from mpi.local.repository import PatientRepository
 from mpi.pds.asynchronous.request.client import add_to_batch
 from .patient import clean_patient, mark_unverified
@@ -13,12 +10,12 @@ import pandas as pd
 
 
 
-class LinkageService:
+class MatchingService:
 
     def __init__(self, local_mpi: PatientRepository):   
         self.local_mpi = local_mpi
     
-    def link(self, df: pd.DataFrame) -> pd.DataFrame:
+    def match(self, df: pd.DataFrame) -> pd.DataFrame:
         """Finds potential matches for patients in the given DataFrame. The original data frame is modified to add a 'patient_ids' column that contains lists of matching patient IDs or None if no match is found."""
                 
         if df.empty:

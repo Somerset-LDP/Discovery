@@ -6,7 +6,7 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from linking.patient import clean_patient, Sex
+from matching.patient import clean_patient, Sex
 
 
 # NHS number validation tests

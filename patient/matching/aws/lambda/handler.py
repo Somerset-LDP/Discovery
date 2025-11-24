@@ -1,6 +1,6 @@
 """
-AWS Lambda entrypoint for synchronous Patient Linking requests.
-Wraps linking.service.LinkageService.
+AWS Lambda entrypoint for synchronous Patient Matching requests.
+Wraps matching.service.MatchingService.
 """
 import logging
 import os
@@ -9,7 +9,7 @@ import boto3
 from botocore.exceptions import ClientError
 import pandas as pd
 from sqlalchemy import create_engine, Engine
-from linking.service import LinkageService
+from matching.service import MatchingService
 from mpi.local.repository import PatientRepository
 
 # Configure logging
@@ -23,7 +23,7 @@ _cached_password = None
 
 def lambda_handler(event, context):
     """
-    AWS Lambda handler for patient linking requests.
+    AWS Lambda handler for patient matching requests.
     
     Expected event format (note that all values are optional but the more values that are provided,
     the better the matching accuracy):
@@ -48,10 +48,10 @@ def lambda_handler(event, context):
     {
         "statusCode": 200,
         "body": {
-            "message": "Patient Linking completed successfully",
+            "message": "Patient Matching completed successfully",
             "request_id": "<AWS request ID>",
             "records_processed": <number of records processed>,
-            "records_linked": <number of records linked>,
+            "records_matched": <number of records matched>,
             "data": [
                 {
                     "nhs_number": "1234567890",
@@ -69,7 +69,7 @@ def lambda_handler(event, context):
     """
 
     try:
-        logger.info("Starting Patient Linking Lambda execution")
+        logger.info("Starting Patient Matching Lambda execution")
         logger.info(f"Event: {event}")
 
         df = _to_dataframe(event)
@@ -78,21 +78,21 @@ def lambda_handler(event, context):
 
         mpi_db_url = _get_mpi_db_url()
         if mpi_db_url:
-            service = LinkageService(local_mpi=PatientRepository(create_engine(mpi_db_url)))
-            linked_df = service.link(df)
+            service = MatchingService(local_mpi=PatientRepository(create_engine(mpi_db_url)))
+            matched_df = service.match(df)
 
             # Convert result DataFrame to dict for response
-            result = linked_df.to_dict(orient='records')
+            result = matched_df.to_dict(orient='records')
 
-            logger.info("Patient Linking Lambda execution completed successfully")
+            logger.info("Patient Matching Lambda execution completed successfully")
 
             return {
                 "statusCode": 200,
                 "body": {
-                    "message": "Patient Linking completed successfully",
+                    "message": "Patient Matching completed successfully",
                     "request_id": context.aws_request_id,
                     "records_processed": len(df),
-                    "records_linked": len(linked_df),
+                    "records_matched": len(matched_df),
                     "data": result
                 }
             }
@@ -107,11 +107,11 @@ def lambda_handler(event, context):
                 }
             }
     except Exception as e:
-        logger.error(f"Patient Linking Lambda execution failed: {str(e)}", exc_info=True)
+        logger.error(f"Patient Matching Lambda execution failed: {str(e)}", exc_info=True)
         return {
             "statusCode": 500,
             "body": {
-                "message": f"Patient Linking execution failed: {str(e)}",
+                "message": f"Patient Matching execution failed: {str(e)}",
                 "request_id": context.aws_request_id
             }
         }

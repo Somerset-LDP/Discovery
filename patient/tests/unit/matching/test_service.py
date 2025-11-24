@@ -5,8 +5,8 @@ import pytest
 import pandas as pd
 from datetime import date
 from unittest.mock import Mock, patch
-from linking.service import LinkageService
-from linking.patient import Sex
+from matching.service import MatchingService
+from matching.patient import Sex
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def mock_repository():
 @pytest.fixture
 def service(mock_repository):
     """Create LinkageService with mocked repository."""
-    return LinkageService(mock_repository)
+    return MatchingService(mock_repository)
 
 
 # ============================================
@@ -35,7 +35,7 @@ def test_all_rows_match_in_local_mpi(service, mock_repository):
     # Mock repository to return matches for all rows
     mock_repository.find_patients.return_value = [['patient-1'], ['patient-2']]
     
-    result = service.link(df)
+    result = service.match(df)
     
     # All rows should have patient_ids
     assert result.loc[0, 'patient_ids'] == ['patient-1']
@@ -57,8 +57,8 @@ def test_no_rows_match_in_local_mpi(service, mock_repository):
     mock_repository.find_patients.return_value = [[], []]
     mock_repository.save.return_value = ['new-patient-1', 'new-patient-2']
     
-    with patch('linking.service.add_to_batch') as mock_add_to_batch:
-        result = service.link(df)
+    with patch('matching.service.add_to_batch') as mock_add_to_batch:
+        result = service.match(df)
     
     # All rows should have patient_ids from newly created patients
     assert result.loc[0, 'patient_ids'] == ['new-patient-1']
@@ -85,8 +85,8 @@ def test_mixed_some_match_some_dont(service, mock_repository):
     mock_repository.find_patients.return_value = [['existing-patient-1'], [], []]
     mock_repository.save.return_value = ['new-patient-1', 'new-patient-2']
     
-    with patch('linking.service.add_to_batch'):
-        result = service.link(df)
+    with patch('matching.service.add_to_batch'):
+        result = service.match(df)
     
     # First row has existing patient, others have new patients
     assert result.loc[0, 'patient_ids'] == ['existing-patient-1']
@@ -108,7 +108,7 @@ def test_multiple_matches_per_row(service, mock_repository):
     # Mock repository to return multiple matches
     mock_repository.find_patients.return_value = [['patient-1', 'patient-2', 'patient-3']]
     
-    result = service.link(df)
+    result = service.match(df)
     
     # Row should have list with multiple patient IDs
     assert result.loc[0, 'patient_ids'] == ['patient-1', 'patient-2', 'patient-3']
@@ -126,7 +126,7 @@ def test_all_rows_have_no_searchable_data(service, mock_repository):
         {'nhs_number': None, 'dob': None, 'first_name': None, 'last_name': None, 'postcode': None, 'sex': None}  # All None
     ])
     
-    result = service.link(df)
+    result = service.match(df)
     
     # All rows should have empty list for patient_ids (unsearchable)
     assert result.loc[0, 'patient_ids'] == []
@@ -149,8 +149,8 @@ def test_some_rows_have_no_searchable_data(service, mock_repository):
     mock_repository.find_patients.return_value = [[], []]
     mock_repository.save.return_value = ['new-patient-1', 'new-patient-2']
     
-    with patch('linking.service.add_to_batch'):
-        result = service.link(df)
+    with patch('matching.service.add_to_batch'):
+        result = service.match(df)
     
     # Searchable rows get new patients, unsearchable row gets empty list
     assert result.loc[0, 'patient_ids'] == ['new-patient-1']
@@ -169,7 +169,7 @@ def test_row_becomes_unsearchable_after_cleaning(service, mock_repository):
         {'nhs_number': '1234567890', 'dob': date(2050, 1, 1), 'first_name': '', 'last_name': '   ', 'postcode': 'INVALID', 'sex': ''},
     ])
     
-    result = service.link(df)
+    result = service.match(df)
     
     # Row should have empty list (all fields invalid)
     assert result.loc[0, 'patient_ids'] == []
@@ -188,7 +188,7 @@ def test_empty_dataframe_raises_error(service):
     df = pd.DataFrame(columns=['nhs_number', 'dob', 'first_name', 'last_name', 'postcode', 'sex'])
     
     with pytest.raises(ValueError, match="DataFrame is empty"):
-        service.link(df)
+        service.match(df)
 
 
 def test_single_row_dataframe(service, mock_repository):
@@ -199,7 +199,7 @@ def test_single_row_dataframe(service, mock_repository):
     
     mock_repository.find_patients.return_value = [['patient-1']]
     
-    result = service.link(df)
+    result = service.match(df)
     
     assert len(result) == 1
     assert result.loc[0, 'patient_ids'] == ['patient-1']
@@ -219,7 +219,7 @@ def test_index_preservation(service, mock_repository):
     
     mock_repository.find_patients.return_value = [['patient-1'], ['patient-2']]
     
-    result = service.link(df)
+    result = service.match(df)
     
     # Original indices preserved
     assert list(result.index) == [10, 25]
@@ -240,7 +240,7 @@ def test_original_dataframe_not_mutated(service, mock_repository):
     
     mock_repository.find_patients.return_value = [['patient-1']]
     
-    result = service.link(df)
+    result = service.match(df)
     
     # Original DataFrame unchanged
     assert df.loc[0, 'first_name'] == original_first_name
@@ -265,8 +265,8 @@ def test_patient_ids_column_format_consistency(service, mock_repository):
     mock_repository.find_patients.return_value = [['patient-1'], []]
     mock_repository.save.return_value = ['new-patient-1']
     
-    with patch('linking.service.add_to_batch'):
-        result = service.link(df)
+    with patch('matching.service.add_to_batch'):
+        result = service.match(df)
     
     # Check format consistency - all should be lists now
     assert isinstance(result.loc[0, 'patient_ids'], list)  # Matched - list
@@ -287,8 +287,8 @@ def test_all_fields_valid_after_cleaning(service, mock_repository):
     mock_repository.find_patients.return_value = [[]]
     mock_repository.save.return_value = ['new-patient-1']
     
-    with patch('linking.service.add_to_batch'):
-        result = service.link(df)
+    with patch('matching.service.add_to_batch'):
+        result = service.match(df)
     
     # Check standardization happened
     assert result.loc[0, 'nhs_number'] == '9434765919'
@@ -305,7 +305,7 @@ def test_all_fields_invalid_after_cleaning(service, mock_repository):
         {'nhs_number': '1234567890', 'dob': date(2050, 1, 1), 'first_name': '', 'last_name': '', 'postcode': 'INVALID', 'sex': ''}
     ])
     
-    result = service.link(df)
+    result = service.match(df)
     
     # All fields should be None after cleaning
     assert result.loc[0, 'nhs_number'] is None
@@ -331,7 +331,7 @@ def test_duplicate_rows(service, mock_repository):
     # Mock repository returns same match for both duplicate rows
     mock_repository.find_patients.return_value = [['patient-1'], ['patient-1']]
     
-    result = service.link(df)
+    result = service.match(df)
     
     # Both rows should have same patient_ids
     assert result.loc[0, 'patient_ids'] == ['patient-1']

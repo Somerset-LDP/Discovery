@@ -179,9 +179,8 @@ def test_multiple_matches_grouped_correctly(strategy, mock_engine):
     
     assert result == [['pat_123', 'pat_456', 'pat_789']]
 
-
-def test_no_match_returns_none(strategy, mock_engine):
-    """Row with no matches (NULL patient_id from LEFT JOIN) should return None."""
+def test_no_match_returns_empty_list(strategy, mock_engine):
+    """Row with no matches (NULL patient_id from LEFT JOIN) should return empty list."""
     _, mock_connection = mock_engine
     
     mock_result = Mock()
@@ -199,8 +198,7 @@ def test_no_match_returns_none(strategy, mock_engine):
     
     result = strategy.find_matches(df)
     
-    assert result == [None]
-
+    assert result == [[]]
 
 def test_mixed_results_grouped_correctly(strategy, mock_engine):
     """Mix of single match, no match, and multiple matches should be grouped correctly."""
@@ -226,7 +224,7 @@ def test_mixed_results_grouped_correctly(strategy, mock_engine):
     
     result = strategy.find_matches(df)
     
-    assert result == [['pat_111'], None, ['pat_222', 'pat_333']]
+    assert result == [['pat_111'], [], ['pat_222', 'pat_333']]
 
 
 def test_preserves_result_order(strategy, mock_engine):
@@ -268,4 +266,4 @@ def test_all_rows_no_matches(strategy, mock_engine):
     
     result = strategy.find_matches(df)
     
-    assert result == [None, None, None]
+    assert result == [[], [], []]

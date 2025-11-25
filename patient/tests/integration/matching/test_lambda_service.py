@@ -49,15 +49,6 @@ def create_lambda_container_with_env(docker_network, env_vars=None):
     for key, value in env.items():
         container.with_env(key, value)    
 
-
-    # Set environment variables at container creation
-    #container.with_env("MPI_DB_USERNAME", "mpi_writer")
-    #container.with_env("MPI_DB_PASSWORD", "DefaultPassword123!")
-    #container.with_env("MPI_DB_HOST", "db")
-    #container.with_env("MPI_DB_NAME", "ldp")
-    #container.with_env("MPI_DB_PORT", "5432")
-    #container.with_env("MPI_SCHEMA_NAME", "mpi")
-
     container.waiting_for(HttpWaitStrategy(8080, "/2015-03-31/functions/function/invocations").for_status_code_matching(lambda status_code: 200 <= status_code < 600))
 
     with container as running_container:        
@@ -72,25 +63,41 @@ def invoke_lambda(container, event, timeout: int = 30):
     response = requests.post(url, json=event, timeout=timeout)
     return response.json()
 
+def insert_patients(conn, patients):
+    """Insert a list of patient dicts into the database and return their IDs."""
+    ids = []
+    for p in patients:
+        result = conn.execute(text("""
+            INSERT INTO patient (
+                nhs_number, given_name, family_name, date_of_birth, 
+                postcode, sex, verified, created_at, updated_at
+            ) VALUES (
+                :nhs_number, :first_name, :last_name, :dob,
+                :postcode, :sex, :verified, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            RETURNING patient_id
+        """), p)
+        ids.append(result.fetchone()[0])
+    conn.commit()
+    return ids
+
 def test_successful_single_patient_exact_match_via_database(postgres_db, docker_network):
     """
     Test that a patient request successfully queries PostgreSQL, matches an existing 
     patient record using the SQL exact match strategy, and returns the correct patient_id.
     """
     # ARRANGE: Insert a known patient into the database
+    patient_data = [{
+        "nhs_number": "9434765919",
+        "first_name": "John",
+        "last_name": "Doe",
+        "dob": "1980-01-15",
+        "postcode": "SW1A 1AA",
+        "sex": "male",
+        "verified": True
+    }]
     with postgres_db.connect() as conn:
-        result = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '9434765919', 'John', 'Doe', '1980-01-15',
-                'SW1A 1AA', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        existing_patient_id = result.fetchone()[0]
-        conn.commit()
+        [existing_patient_id] = insert_patients(conn, patient_data)
         print(f"Inserted test patient with ID: {existing_patient_id}")
     
     # Prepare Lambda event
@@ -148,47 +155,38 @@ def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docke
     that returns multiple matching patient_ids from actual database records.
     """
     # ARRANGE: Insert multiple patients with same surname and postcode
+    patient_data = [
+        {
+            "nhs_number": "9434765919",
+            "first_name": "John",
+            "last_name": "Smith",
+            "dob": "1980-01-15",
+            "postcode": "SW1A 1AA",
+            "sex": "male",
+            "verified": True
+        },
+        {
+            "nhs_number": "9434765870",
+            "first_name": "Jane",
+            "last_name": "Smith",
+            "dob": "1975-06-22",
+            "postcode": "SW1A 1AA",
+            "sex": "female",
+            "verified": True
+        },
+        {
+            "nhs_number": "9434765828",
+            "first_name": "Bob",
+            "last_name": "Smith",
+            "dob": "1990-03-10",
+            "postcode": "SW1A 1AA",
+            "sex": "male",
+            "verified": True
+        }
+    ]
     with postgres_db.connect() as conn:
-        # Patient 1: John Smith in SW1A 1AA
-        result1 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '9434765919', 'John', 'Smith', '1980-01-15',
-                'SW1A 1AA', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        patient_id_1 = result1.fetchone()[0]
-        
-        # Patient 2: Jane Smith in SW1A 1AA (different first name, same last name and postcode)
-        result2 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '9434765870', 'Jane', 'Smith', '1975-06-22',
-                'SW1A 1AA', 'female', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        patient_id_2 = result2.fetchone()[0]
-        
-        # Patient 3: Bob Smith in SW1A 1AA (another person with same last name and postcode)
-        result3 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '9434765828', 'Bob', 'Smith', '1990-03-10',
-                'SW1A 1AA', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        patient_id_3 = result3.fetchone()[0]
-        
-        conn.commit()
+        patient_ids = insert_patients(conn, patient_data)
+        patient_id_1, patient_id_2, patient_id_3 = patient_ids
         print(f"Inserted 3 test patients with IDs: {patient_id_1}, {patient_id_2}, {patient_id_3}")
     
     # Prepare Lambda event with partial data (only last name and postcode have values)
@@ -330,34 +328,28 @@ def test_verified_patient_match_excludes_unverified(postgres_db, docker_network)
     only the verified patient's ID should be returned.
     """
     # ARRANGE: Insert two patients with same surname and postcode - one verified, one unverified
+    patient_data = [
+        {
+            "nhs_number": "9434765919",
+            "first_name": "John",
+            "last_name": "Williams",
+            "dob": "1980-01-15",
+            "postcode": "BS1 5TH",
+            "sex": "male",
+            "verified": True
+        },
+        {
+            "nhs_number": "9434765870",
+            "first_name": "Jane",
+            "last_name": "Williams",
+            "dob": "1975-06-22",
+            "postcode": "BS1 5TH",
+            "sex": "female",
+            "verified": False
+        }
+    ]
     with postgres_db.connect() as conn:
-        # Patient 1: Verified patient
-        result1 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '9434765919', 'John', 'Williams', '1980-01-15',
-                'BS1 5TH', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        verified_patient_id = result1.fetchone()[0]
-        
-        # Patient 2: Unverified patient with same surname and postcode
-        result2 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '9434765870', 'Jane', 'Williams', '1975-06-22',
-                'BS1 5TH', 'female', false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        unverified_patient_id = result2.fetchone()[0]
-        
-        conn.commit()
+        verified_patient_id, unverified_patient_id = insert_patients(conn, patient_data)
         print(f"Inserted verified patient ID: {verified_patient_id}, unverified patient ID: {unverified_patient_id}")
     
     # Prepare Lambda event with partial data (only last name and postcode)
@@ -415,58 +407,50 @@ def test_batch_request_with_mixed_matching_outcomes(postgres_db, docker_network)
     - Patient 4: Insufficient data, rejected (zero patient_ids)
     """
     # ARRANGE: Insert test patients into the database
+    patient_data = [
+        {
+            "nhs_number": "1111111111",
+            "first_name": "Alice",
+            "last_name": "Brown",
+            "dob": "1985-03-20",
+            "postcode": "E1 6AN",
+            "sex": "female",
+            "verified": True
+        },
+        {
+            "nhs_number": "2222222222",
+            "first_name": "John",
+            "last_name": "Smith",
+            "dob": "1980-01-15",
+            "postcode": "SW1A 1AA",
+            "sex": "male",
+            "verified": True
+        },
+        {
+            "nhs_number": "3333333333",
+            "first_name": "Jane",
+            "last_name": "Smith",
+            "dob": "1975-06-22",
+            "postcode": "SW1A 1AA",
+            "sex": "female",
+            "verified": True
+        },
+        {
+            "nhs_number": "4444444444",
+            "first_name": "Bob",
+            "last_name": "Smith",
+            "dob": "1990-03-10",
+            "postcode": "SW1A 1AA",
+            "sex": "male",
+            "verified": True
+        }
+    ]
     with postgres_db.connect() as conn:
-        # Patient for exact match
-        result1 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '1111111111', 'Alice', 'Brown', '1985-03-20',
-                'E1 6AN', 'female', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        exact_match_id = result1.fetchone()[0]
-        
-        # Three patients with same surname and postcode for multiple match scenario
-        result2 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '2222222222', 'John', 'Smith', '1980-01-15',
-                'SW1A 1AA', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        multi_match_id_1 = result2.fetchone()[0]
-        
-        result3 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '3333333333', 'Jane', 'Smith', '1975-06-22',
-                'SW1A 1AA', 'female', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        multi_match_id_2 = result3.fetchone()[0]
-        
-        result4 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '4444444444', 'Bob', 'Smith', '1990-03-10',
-                'SW1A 1AA', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        multi_match_id_3 = result4.fetchone()[0]
-        
-        conn.commit()
+        ids = insert_patients(conn, patient_data)
+        exact_match_id = ids[0]
+        multi_match_id_1 = ids[1]
+        multi_match_id_2 = ids[2]
+        multi_match_id_3 = ids[3]
         print(f"Inserted test patients - Exact match: {exact_match_id}, Multiple match: {multi_match_id_1}, {multi_match_id_2}, {multi_match_id_3}")
     
     # Prepare Lambda event with batch of 4 patients
@@ -578,47 +562,37 @@ def test_empty_and_missing_optional_fields_handling(postgres_db, docker_network)
     - Patient 4: Only surname populated (single field search)
     """
     # ARRANGE: Insert test patients into the database
+    patient_data = [
+        {
+            "nhs_number": "5555555555",
+            "first_name": "Tom",
+            "last_name": "Jones",
+            "dob": "1970-05-10",
+            "postcode": "NW1 2DB",
+            "sex": "male",
+            "verified": True
+        },
+        {
+            "nhs_number": "6666666666",
+            "first_name": "Sarah",
+            "last_name": "Wilson",
+            "dob": "1988-11-25",
+            "postcode": "B1 1AA",
+            "sex": "female",
+            "verified": True
+        },
+        {
+            "nhs_number": "7777777777",
+            "first_name": "David",
+            "last_name": "Taylor",
+            "dob": "1992-02-14",
+            "postcode": "M2 3EF",
+            "sex": "male",
+            "verified": True
+        }
+    ]
     with postgres_db.connect() as conn:
-        # Patient matching by NHS number only
-        result1 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '5555555555', 'Tom', 'Jones', '1970-05-10',
-                'NW1 2DB', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        nhs_match_id = result1.fetchone()[0]
-        
-        # Patient matching by name only
-        result2 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '6666666666', 'Sarah', 'Wilson', '1988-11-25',
-                'B1 1AA', 'female', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        name_match_id = result2.fetchone()[0]
-        
-        # Patient matching by surname only
-        result3 = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                '7777777777', 'David', 'Taylor', '1992-02-14',
-                'M2 3EF', 'male', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """))
-        surname_match_id = result3.fetchone()[0]
-        
-        conn.commit()
+        nhs_match_id, name_match_id, surname_match_id = insert_patients(conn, patient_data)
         print(f"Inserted test patients - NHS: {nhs_match_id}, Name: {name_match_id}, Surname: {surname_match_id}")
     
     # Prepare Lambda event with various empty/missing field combinations

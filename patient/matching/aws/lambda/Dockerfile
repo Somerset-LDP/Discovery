@@ -19,7 +19,6 @@ RUN --mount=type=secret,id=ssl-certs \
 COPY patient/matching/__init__.py ./matching/
 COPY patient/matching/service.py ./matching/
 COPY patient/matching/patient.py ./matching/
-COPY patient/matching/matchers.py ./matching/
 
 # Copy mpi module
 COPY patient/mpi/__init__.py ./mpi/

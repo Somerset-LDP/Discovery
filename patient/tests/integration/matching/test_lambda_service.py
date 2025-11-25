@@ -81,6 +81,27 @@ def insert_patients(conn, patients):
     conn.commit()
     return ids
 
+def assert_response(response, expected_status=200, expected_message=None, expected_counts=None, expected_data=None):
+    """
+    Assert the Lambda response matches expected status, message, counts, and optionally patient data.
+    expected_counts: dict or None, expected values for keys in response['body']['counts']
+    expected_data: list or None, expected patient data dicts in response['body']['data']
+    """
+    assert response["statusCode"] == expected_status, f"Expected status {expected_status}, got {response['statusCode']}"
+    body = response["body"]
+    if expected_message is not None:
+        assert body["message"] == expected_message, f"Expected message '{expected_message}', got '{body['message']}'"
+    if expected_counts is not None:
+        counts = body["counts"]
+        for k, v in expected_counts.items():
+            assert counts[k] == v, f"Expected counts['{k}']={v}, got {counts[k]}"
+    if expected_data is not None:
+        data = body["data"]
+        assert len(data) == len(expected_data), f"Expected {len(expected_data)} data items, got {len(data)}"
+        for expected, actual in zip(expected_data, data):
+            for k, v in expected.items():
+                assert actual.get(k) == v, f"Expected data field {k}={v}, got {actual.get(k)}"
+
 def test_successful_single_patient_exact_match_via_database(postgres_db, docker_network):
     """
     Test that a patient request successfully queries PostgreSQL, matches an existing 
@@ -118,32 +139,23 @@ def test_successful_single_patient_exact_match_via_database(postgres_db, docker_
     with create_lambda_container_with_env(docker_network) as container:
         response = invoke_lambda(container, event)
     
-    # ASSERT: Verify response structure and content
-    assert response["statusCode"] == 200, f"Expected 200, got {response['statusCode']}: {response}"
-    
-    body = response["body"]
-    assert body["message"] == "Patient Matching completed successfully"
-
-    # Verify counts
-    counts = body["counts"]
-    assert counts["total"] == 1
-    assert counts["single"] == 1
-    assert counts["multiple"] == 0
-    assert counts["zero"] == 0
-    
-    # Verify the matched patient data
-    data = body["data"]
-    assert len(data) == 1
-    
-    matched_patient = data[0]
-    assert matched_patient["nhs_number"] == "9434765919"
-    assert matched_patient["first_name"] == "John"
-    assert matched_patient["last_name"] == "Doe"
-    assert matched_patient["postcode"] == "SW1A 1AA"
-    assert matched_patient["dob"] == "1980-01-15"
-    assert matched_patient["sex"] == "male"
-    
+    # ASSERT: Use helper for response assertions
+    assert_response(
+        response,
+        expected_status=200,
+        expected_message="Patient Matching completed successfully",
+        expected_counts={"total": 1, "single": 1, "multiple": 0, "zero": 0},
+        expected_data=[{
+            "nhs_number": "9434765919",
+            "first_name": "John",
+            "last_name": "Doe",
+            "postcode": "SW1A 1AA",
+            "dob": "1980-01-15",
+            "sex": "male"
+        }]
+    )
     # Most importantly: verify the patient_id matches the existing record
+    matched_patient = response["body"]["data"][0]
     assert "patient_ids" in matched_patient
     assert isinstance(matched_patient["patient_ids"], list)
     assert len(matched_patient["patient_ids"]) == 1
@@ -207,33 +219,22 @@ def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docke
     with create_lambda_container_with_env(docker_network) as container:
         response = invoke_lambda(container, event)
     
-    # ASSERT: Verify response structure
-    assert response["statusCode"] == 200, f"Expected 200, got {response['statusCode']}: {response}"
-    
-    body = response["body"]
-    assert body["message"] == "Patient Matching completed successfully"
-
-    # Verify counts
-    counts = body["counts"]
-    assert counts["total"] == 1
-    assert counts["single"] == 0
-    assert counts["multiple"] == 1
-    assert counts["zero"] == 0
-    
-    # Verify the matched patient data contains all three patient IDs
-    data = body["data"]
-    assert len(data) == 1
-    
-    matched_patient = data[0]
-    assert matched_patient["last_name"] == "Smith"
-    assert matched_patient["postcode"] == "SW1A 1AA"
-    
+    # ASSERT: Use helper for response assertions
+    assert_response(
+        response,
+        expected_status=200,
+        expected_message="Patient Matching completed successfully",
+        expected_counts={"total": 1, "single": 0, "multiple": 1, "zero": 0},
+        expected_data=[{
+            "last_name": "Smith",
+            "postcode": "SW1A 1AA"
+        }]
+    )
     # Most importantly: verify all three patient_ids are returned
+    matched_patient = response["body"]["data"][0]
     assert "patient_ids" in matched_patient
     assert isinstance(matched_patient["patient_ids"], list)
     assert len(matched_patient["patient_ids"]) == 3, f"Expected 3 matches, got {len(matched_patient['patient_ids'])}"
-    
-    # Verify all three patient IDs are in the result (order may vary)
     returned_ids = set(matched_patient["patient_ids"])
     expected_ids = {patient_id_1, patient_id_2, patient_id_3}
     assert returned_ids == expected_ids, f"Expected {expected_ids}, got {returned_ids}"
@@ -266,32 +267,23 @@ def test_no_match_creates_new_unverified_patient(postgres_db, docker_network):
     with create_lambda_container_with_env(docker_network) as container:
         response = invoke_lambda(container, event)
     
-    # ASSERT: Verify response structure
-    assert response["statusCode"] == 200, f"Expected 200, got {response['statusCode']}: {response}"
-    
-    body = response["body"]
-    assert body["message"] == "Patient Matching completed successfully"
-
-    # Verify counts - single match because a new unverified patient was created
-    counts = body["counts"]
-    assert counts["total"] == 1
-    assert counts["single"] == 1, "New unverified patient should be created with single patient_id"
-    assert counts["multiple"] == 0
-    assert counts["zero"] == 0
-    
-    # Verify the response contains the newly created patient
-    data = body["data"]
-    assert len(data) == 1
-    
-    new_patient = data[0]
-    assert new_patient["nhs_number"] == "9876543210"
-    assert new_patient["first_name"] == "Alice"
-    assert new_patient["last_name"] == "Johnson"
-    assert new_patient["postcode"] == "M1 2AB"
-    assert new_patient["dob"] == "1992-04-18"
-    assert new_patient["sex"] == "female"
-    
+    # ASSERT: Use helper for response assertions
+    assert_response(
+        response,
+        expected_status=200,
+        expected_message="Patient Matching completed successfully",
+        expected_counts={"total": 1, "single": 1, "multiple": 0, "zero": 0},
+        expected_data=[{
+            "nhs_number": "9876543210",
+            "first_name": "Alice",
+            "last_name": "Johnson",
+            "postcode": "M1 2AB",
+            "dob": "1992-04-18",
+            "sex": "female"
+        }]
+    )
     # Most importantly: verify a new patient_id was created
+    new_patient = response["body"]["data"][0]
     assert "patient_ids" in new_patient
     assert isinstance(new_patient["patient_ids"], list)
     assert len(new_patient["patient_ids"]) == 1
@@ -370,28 +362,19 @@ def test_verified_patient_match_excludes_unverified(postgres_db, docker_network)
     with create_lambda_container_with_env(docker_network) as container:
         response = invoke_lambda(container, event)
     
-    # ASSERT: Verify response structure
-    assert response["statusCode"] == 200, f"Expected 200, got {response['statusCode']}: {response}"
-    
-    body = response["body"]
-    assert body["message"] == "Patient Matching completed successfully"
-    
-    # Verify counts - should have single match (only the verified patient)
-    counts = body["counts"]
-    assert counts["total"] == 1
-    assert counts["single"] == 1, "Should only match the verified patient"
-    assert counts["multiple"] == 0
-    assert counts["zero"] == 0
-    
-    # Verify the matched patient data
-    data = body["data"]
-    assert len(data) == 1
-    
-    matched_patient = data[0]
-    assert matched_patient["last_name"] == "Williams"
-    assert matched_patient["postcode"] == "BS1 5TH"
-    
+    # ASSERT: Use helper for response assertions
+    assert_response(
+        response,
+        expected_status=200,
+        expected_message="Patient Matching completed successfully",
+        expected_counts={"total": 1, "single": 1, "multiple": 0, "zero": 0},
+        expected_data=[{
+            "last_name": "Williams",
+            "postcode": "BS1 5TH"
+        }]
+    )
     # Most importantly: verify only the verified patient_id is returned
+    matched_patient = response["body"]["data"][0]
     assert "patient_ids" in matched_patient
     assert isinstance(matched_patient["patient_ids"], list)
     assert len(matched_patient["patient_ids"]) == 1, "Should only return the verified patient"

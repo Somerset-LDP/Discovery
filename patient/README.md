@@ -29,6 +29,7 @@ patient/
 └─ mpi/
     ├─ local/
     │   └─ repository.py             # Access to local MPI/CDM
+│   |   └─ matching.py               # Matching strategy (Strict/fuzzy/probabilistic)
     │
     └─ pds/async/
         ├─ request/
@@ -62,10 +63,6 @@ Returns a stable patient identifier (verified or temporary) so ingestion can con
   - Creation of temporary unverified patients
   - Returning the correct patient reference to the caller
 
-### `matchers.py`
-- Encapsulates match algorithms (strict, fuzzy, probabilistic in future).
-- Keeps algorithmic logic separated from orchestration.
-
 ---
 
 ## 2. Verification Service (`verification/`)
@@ -96,6 +93,45 @@ Centralised abstraction for local and remote MPI interactions.
   - Creation of unverified patients
   - Updating and promotion
   - Merging and deletion
+
+### `local/matching.py`
+- Encapsulates match algorithms (strict, fuzzy, probabilistic in future).
+- Keeps algorithmic logic separated from orchestration.
+
+### Database
+
+The `local/data/migrations` directory contains the SQL scripts for bootstrapping the local MPI database. The intention is that these files will be run in order against a blank database to bring it up to the current version of the local MPI schema. Alternatively the execution could begin at a specified file to bring an existing database up to date.
+
+Note that the database, schema and users are expected to be created elsewhere and are not the concern of this module.
+
+The file names follow the convention `<migration_time_in_UTC>__<short_action_description>.sql`. By prefixing with the timestamp of when the migration the order in which the files should be run is implicit i.e. oldest to newest.
+
+The short_action_description should follow the form `verb_object_detail`
+
+**verb** - ∈ {create, add, alter, rename, drop, delete, update}
+
+| Verb     | When to use                                |
+| -------- | ------------------------------------------ |
+| `create` | New table, index, constraint               |
+| `add`    | Adding column, index, constraint           |
+| `alter`  | Changing column type, nullability, default |
+| `rename` | Renaming table or column                   |
+| `drop`   | Removing table, column, index, constraint  |
+| `update` | Modifying reference or seed data           |
+| `delete` | Removing seed/test/reference data          |
+
+**object** - ∈ {table, column, index, constraint, fk, pk, enum, view, data}
+
+**detail** - describes the specific target e.g. - 
+
+* create_table_patient
+* add_column_patient_dob
+* alter_column_appointment_status_type
+* rename_table_maternity_case_to_birth_record
+* drop_index_patient_lastname
+* add_fk_patient_gp_id
+* update_data_reference_status_codes
+* delete_data_test_records
 
 ---
 
@@ -133,42 +169,6 @@ Handles scheduled polling of inbound PDS/DBS trace responses.
 - Domain model classes will be added later as patterns emerge.
 - Eventing concerns (SNS/EventBridge schemas, DLQs, etc.) deliberately remain outside the domain code.
 - The PDS async folders provide a stable integration boundary, even though remote MPI connectivity is not yet available.
-
----
-
-## Database
-
-TODO - migrations
-
-<migration_time_in_UTC>__<short_action_description>.sql
-
-
-verb ∈ {create, add, alter, rename, drop, delete, update}
-
-object ∈ {table, column, index, constraint, fk, pk, enum, view, data}
-
-| Verb     | When to use                                |
-| -------- | ------------------------------------------ |
-| `create` | New table, index, constraint               |
-| `add`    | Adding column, index, constraint           |
-| `alter`  | Changing column type, nullability, default |
-| `rename` | Renaming table or column                   |
-| `drop`   | Removing table, column, index, constraint  |
-| `update` | Modifying reference or seed data           |
-| `delete` | Removing seed/test/reference data          |
-
-
-detail describes the specific target
-
-create_table_patient
-add_column_patient_dob
-alter_column_appointment_status_type
-rename_table_maternity_case_to_birth_record
-drop_index_patient_lastname
-add_fk_patient_gp_id
-update_data_reference_status_codes
-delete_data_test_records
-
 
 ---
 

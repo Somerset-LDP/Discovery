@@ -30,11 +30,14 @@ class MatchingService:
       
         # exclude rows with no identifying data
         is_searchable = self._find_searchable_rows(working_df)
+        logger.debug(f"There are {is_searchable.sum()} searchable rows out of {len(working_df)} total rows.")
        
         self._local_search(working_df, is_searchable)
 
         # Only create unverified patients for searchable unmatched rows
         is_unmatched = is_searchable & working_df['patient_ids'].apply(lambda x: len(x) == 0)
+        logger.debug(f"There are {is_unmatched.sum()} unmatched searchable rows out of {len(working_df)} total rows.")
+
         self._create_unverified_patients(working_df, is_unmatched)
 
         return working_df
@@ -51,6 +54,7 @@ class MatchingService:
             # create new unverified Patient in local MPI
             mark_unverified(unmatched)
             patient_ids = self.local_mpi.save(unmatched)
+            # TODO - we must pseudonymise patient data before storing it
             
             # Update the original DataFrame using the mask
             for idx, patient_id in zip(unmatched.index, patient_ids):

@@ -74,7 +74,7 @@ def lambda_handler(event, context):
 
     try:
         logger.info("Starting Patient Matching Lambda execution")
-        logger.info(f"Event: {event}")
+        logger.debug(f"Event: {event}")
 
         df = _to_dataframe(event)
 
@@ -245,12 +245,12 @@ def _create_db_engine(mpi_db_url: str) -> Optional[Engine]:
     if mpi_db_url:
         try:
             engine = create_engine(mpi_db_url)
-            logger.info("Created engine with URL:", mpi_db_url)
+            logger.info("Created engine for MPI database")
             # Force connection to catch errors early
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
                 conn.close()
-                logger.info("Database engine created successfully")
+                logger.info("Database connection successful")
         except Exception as db_exc:
             logger.error(f"Database connection failed: {str(db_exc)}", exc_info=True)
             engine = None

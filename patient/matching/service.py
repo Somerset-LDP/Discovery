@@ -7,8 +7,9 @@ from mpi.local.repository import PatientRepository
 from mpi.pds.asynchronous.request.client import add_to_batch
 from .patient import clean_patient, mark_unverified
 import pandas as pd
+import logging
 
-
+logger = logging.getLogger(__name__)
 
 class MatchingService:
 
@@ -59,14 +60,15 @@ class MatchingService:
 
     def _find_searchable_rows(self, df: pd.DataFrame) -> pd.Series:
         """Returns boolean mask indicating which rows have at least one non-None field."""
-        return (
-            df['nhs_number'].notna() |
-            df['dob'].notna() |
-            df['postcode'].notna() |
-            df['first_name'].notna() |
-            df['last_name'].notna() |
-            df['sex'].notna()
-        )
+        conditions = []
+        for col in ['nhs_number', 'dob', 'postcode', 'first_name', 'last_name', 'sex']:
+            if col in df.columns:
+                conditions.append(df[col].notna())
+        
+        if not conditions:
+            return pd.Series([False] * len(df), index=df.index)
+        
+        return pd.concat(conditions, axis=1).any(axis=1)
     
     def _local_search(self, df: pd.DataFrame, is_searchable: pd.Series):
         """Performs local MPI search for rows matching the mask and updates df in place."""
@@ -80,11 +82,16 @@ class MatchingService:
             df.at[idx, 'patient_ids'] = []
         
         if is_searchable.any():
-            searchable_df = df[is_searchable]
+            searchable_df = df[is_searchable].copy()
+            
+            # Ensure all required columns exist for matching strategy
+            for col in ['nhs_number', 'dob', 'postcode', 'first_name', 'last_name', 'sex']:
+                if col not in searchable_df.columns:
+                    searchable_df[col] = None
 
             # this will use the default matching strategy (SQL exact match)            
             patient_ids = self.local_mpi.find_patients(searchable_df)
-            
+                   
             # Update the original DataFrame row by row
             for idx, patient_id in zip(searchable_df.index, patient_ids):
                 df.at[idx, 'patient_ids'] = patient_id

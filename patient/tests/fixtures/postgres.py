@@ -84,15 +84,7 @@ def postgres_db(docker_network: Network) -> Generator[Engine, None, None]:
 
             try:
                 yield ldp_engine
-            finally:
-                # Clean up tables between tests
-                try:
-                    with ldp_engine.connect() as conn:
-                        conn.execute(text("TRUNCATE TABLE mpi.patient CASCADE"))
-                        conn.commit()
-                except Exception as cleanup_error:
-                    print(f"Warning: Failed to cleanup tables: {cleanup_error}")
-                
+            finally:                
                 ldp_engine.dispose()
                 shutil.rmtree(init_dir, ignore_errors=True)
                 
@@ -123,3 +115,12 @@ def apply_migrations(conn, resource_package: str = "mpi.local.data.migrations"):
                 print(f"Applied: {migration_file.name}")
     except (ModuleNotFoundError, FileNotFoundError):
         print(f"Warning: Migrations package not found: {resource_package}")
+
+@pytest.fixture(autouse=True)
+def clean_patient_table(postgres_db):
+    """Clean the patient table before each test."""
+    yield  # Run the test first
+    # Clean up after the test
+    with postgres_db.connect() as conn:
+        conn.execute(text("TRUNCATE TABLE patient RESTART IDENTITY CASCADE"))
+        conn.commit()        

@@ -48,13 +48,13 @@ class PatientRepository:
                 verified, created_at, updated_at
             )
             SELECT 
-                unnest(:nhs_numbers::TEXT[]),
-                unnest(:given_names::TEXT[]),
-                unnest(:family_names::TEXT[]),
-                unnest(:dobs::TEXT[]),
-                unnest(:postcodes::TEXT[]),
-                unnest(:sexes::TEXT[]),
-                unnest(:verifieds::BOOLEAN[]),
+                unnest(CAST(:nhs_numbers AS TEXT[])),
+                unnest(CAST(:given_names AS TEXT[])),
+                unnest(CAST(:family_names AS TEXT[])),
+                unnest(CAST(:dobs AS TEXT[])),
+                unnest(CAST(:postcodes AS TEXT[])),
+                unnest(CAST(:sexes AS TEXT[])),
+                unnest(CAST(:verifieds AS BOOLEAN[])),
                 CURRENT_TIMESTAMP,
                 CURRENT_TIMESTAMP
             RETURNING patient_id

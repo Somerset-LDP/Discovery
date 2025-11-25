@@ -4,11 +4,11 @@ Wraps matching.service.MatchingService.
 """
 import logging
 import os
-from typing import Tuple, Any
+from typing import Optional, Tuple, Any, Dict
 import boto3
 from botocore.exceptions import ClientError
 import pandas as pd
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, Engine, text
 from matching.service import MatchingService
 from mpi.local.repository import PatientRepository
 
@@ -50,8 +50,12 @@ def lambda_handler(event, context):
         "body": {
             "message": "Patient Matching completed successfully",
             "request_id": "<AWS request ID>",
-            "records_processed": <number of records processed>,
-            "records_matched": <number of records matched>,
+            "counts": {
+                "total": <total number of records processed>,
+                "single": <number of records with a single match>,
+                "multiple": <number of records with multiple matches>,
+                "zero": <number of records with no matches>
+            },
             "data": [
                 {
                     "nhs_number": "1234567890",
@@ -78,24 +82,35 @@ def lambda_handler(event, context):
 
         mpi_db_url = _get_mpi_db_url()
         if mpi_db_url:
-            service = MatchingService(local_mpi=PatientRepository(create_engine(mpi_db_url)))
-            matched_df = service.match(df)
+            engine = _create_db_engine(mpi_db_url)
+            if engine is not None:
+                service = MatchingService(local_mpi=PatientRepository(engine))
+                matched_df = service.match(df)
 
-            # Convert result DataFrame to dict for response
-            result = matched_df.to_dict(orient='records')
+                # Convert result DataFrame to dict for response
+                result = matched_df.to_dict(orient='records')
 
-            logger.info("Patient Matching Lambda execution completed successfully")
+                logger.info("Patient Matching Lambda execution completed successfully")
 
-            return {
-                "statusCode": 200,
-                "body": {
-                    "message": "Patient Matching completed successfully",
-                    "request_id": context.aws_request_id,
-                    "records_processed": len(df),
-                    "records_matched": len(matched_df),
-                    "data": result
+                return {
+                    "statusCode": 200,
+                    "body": {
+                        "message": "Patient Matching completed successfully",
+                        "request_id": context.aws_request_id,
+                        "counts": __count_matches(matched_df),
+                        "data": result
+                    }
                 }
-            }
+            else:
+                error_message = 'Failed to create database engine'
+                logger.error(error_message)
+                return {
+                    "statusCode": 500,
+                    "body": {
+                        "message": error_message,
+                        "request_id": context.aws_request_id
+                    }
+                }
         else:
             error_message = 'Missing MPI database URL configuration'
             logger.error(error_message)
@@ -198,3 +213,46 @@ def _get_mpi_db_url() -> str | None:
         return None
 
     return f"postgresql+psycopg2://{username}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}?options=-c%20search_path={DB_SCHEMA},public"
+
+def __count_matches(all_matches: pd.DataFrame) -> Dict[str, int]:
+        """Implements patient matching using SQL exact matching.
+
+        Args:
+            queries: DataFrame with patient data to match against local MPI.
+        """
+        # Calculate match statistics
+        match_stats = {
+            'total': len(all_matches),
+            'single': 0,
+            'multiple': 0,
+            'zero': 0
+        }
+
+        for patient_ids in all_matches['patient_ids']:
+            if len(patient_ids) == 0:
+                match_stats['zero'] += 1
+            elif len(patient_ids) == 1:
+                match_stats['single'] += 1
+            else:
+                match_stats['multiple'] += 1            
+
+        return match_stats
+
+def _create_db_engine(mpi_db_url: str) -> Optional[Engine]:
+    """Creates a SQLAlchemy engine for the MPI database."""
+    engine: Optional[Engine] = None
+    
+    if mpi_db_url:
+        try:
+            engine = create_engine(mpi_db_url)
+            logger.info("Created engine with URL:", mpi_db_url)
+            # Force connection to catch errors early
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+                conn.close()
+                logger.info("Database engine created successfully")
+        except Exception as db_exc:
+            logger.error(f"Database connection failed: {str(db_exc)}", exc_info=True)
+            engine = None
+        
+    return engine

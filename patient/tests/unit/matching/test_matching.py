@@ -49,7 +49,7 @@ def test_extracts_columns_correctly(strategy, mock_engine):
     
     df = pd.DataFrame([{
         'nhs_number': '1234567890',
-        'dob': date(2000, 12, 25),
+        'dob': '2000-12-25',
         'postcode': 'SW1A 1AA',
         'first_name': 'Test',
         'last_name': 'User',
@@ -64,7 +64,7 @@ def test_extracts_columns_correctly(strategy, mock_engine):
     
     assert params['row_indices'] == [0]
     assert params['nhs_numbers'] == ['1234567890']
-    assert params['dobs'] == ['2000-12-25']  # Date converted to string
+    assert params['dobs'] == ['2000-12-25']  
     assert params['postcodes'] == ['SW1A 1AA']
     assert params['first_names'] == ['Test']
     assert params['last_names'] == ['User']
@@ -94,7 +94,7 @@ def test_handles_none_values_in_columns(strategy, mock_engine):
     params = call_args[0][1]
     
     assert params['nhs_numbers'] == ['1234567890']
-    assert params['dobs'] == ['None']  # None converted to string 'None' by astype(str)
+    assert params['dobs'] == [None] 
     assert params['postcodes'] == [None]
     assert params['first_names'] == ['John']
     assert params['last_names'] == [None]

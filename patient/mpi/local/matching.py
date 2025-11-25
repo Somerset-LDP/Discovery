@@ -1,8 +1,11 @@
 # patient/mpi/strategies/sql_exact_match.py
 from typing import List, Optional
+import logging
 from sqlalchemy import Engine, text
 import pandas as pd
 from mpi.matching import PatientMatchingStrategy
+
+logger = logging.getLogger(__name__)
 
 class SqlExactMatchStrategy(PatientMatchingStrategy):
     """Exact matching done entirely in SQL/PostgreSQL."""
@@ -22,18 +25,19 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
             List of lists of internal patient IDs (empty list if no match), same length as queries DataFrame.
             Each element is a List[str] containing zero or more patient IDs.
         """
+
         if queries.empty:
             return []
         
         # Extract columns as lists - all columns guaranteed to exist
         row_indices = list(range(len(queries)))
         nhs_numbers = queries['nhs_number'].tolist()
-        dobs = queries['dob'].astype(str).tolist()
+        dobs = queries['dob'].tolist()
         postcodes = queries['postcode'].tolist()
         first_names = queries['first_name'].tolist()
         last_names = queries['last_name'].tolist()
         sexes = queries['sex'].tolist()
-        
+                
         query = text("""
             WITH query_data AS (
                 SELECT 
@@ -56,6 +60,7 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
                 AND (tqd.first_name IS NULL OR p.given_name = tqd.first_name)
                 AND (tqd.last_name IS NULL OR p.family_name = tqd.last_name)
                 AND (tqd.sex IS NULL OR p.sex = tqd.sex)
+                AND p.verified = true
             ORDER BY tqd.row_idx, p.patient_id
         """)
 
@@ -72,6 +77,8 @@ class SqlExactMatchStrategy(PatientMatchingStrategy):
         
         # Group results by row index - initialize with empty lists instead of None
         results: List[List[str]] = [[] for _ in range(len(queries))]
+        logger.info(f"SQL matching returned {len(result_rows)} rows")
+
         current_row_idx = None
         current_matches = []
         

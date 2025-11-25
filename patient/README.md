@@ -205,8 +205,12 @@ The project exposes two Lambdas both of which are deployed as Docker images -
     {
       "message": "Patient Linking completed successfully",
       "request_id": "<AWS request ID>",
-      "records_processed": 1,
-      "records_matched": 1,
+      "counts": {
+        "total": 1,
+        "single": 0,
+        "multiple": 1,
+        "zero": 0        
+      }
       "data": [
           {
               "nhs_number": "1234567890",

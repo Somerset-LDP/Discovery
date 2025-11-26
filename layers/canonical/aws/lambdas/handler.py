@@ -226,7 +226,7 @@ def _get_output_db_url() -> str | None:
     """
     Constructs the database URL using credentials and environment variables.
     """
-    DB_HOST = os.environ.get("OUTPUT_DB_HOST", "127.0.0.1")
+    DB_HOST = os.environ.get("OUTPUT_DB_HOST")
     DB_PORT = os.environ.get("OUTPUT_DB_PORT", "5432")
     DB_NAME = os.environ.get("OUTPUT_DB_NAME", "ldp")
 

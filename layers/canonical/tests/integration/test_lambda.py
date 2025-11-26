@@ -19,7 +19,7 @@ def create_lambda_container_with_env(input_location_path, postgres_db, docker_ne
     Yields:
         running_container: Ready-to-use Lambda container
     """
-    container = DockerContainer("emis_gprecord_canonical:latest")
+    container = DockerContainer("canonical_layer:latest")
     container.with_exposed_ports(8080)
 
     # Map host files to container paths
@@ -29,7 +29,6 @@ def create_lambda_container_with_env(input_location_path, postgres_db, docker_ne
     container.with_network(docker_network)
 
     # Set environment variables at container creation
-    container.with_env("INPUT_LOCATION", "file:///input")
     container.with_env("OUTPUT_DB_USERNAME", "canonical_writer")
     container.with_env("OUTPUT_DB_PASSWORD", "DefaultPassword123!")
     container.with_env("OUTPUT_DB_HOST", "db")
@@ -41,13 +40,23 @@ def create_lambda_container_with_env(input_location_path, postgres_db, docker_ne
     with container as running_container:        
         yield running_container
 
-def invoke_lambda(container, timeout: int = 30):
-    """Invoke Lambda function in container"""
+def invoke_lambda(container, event: dict, timeout: int = 30):
+    """
+    Invoke Lambda function in container.
+
+    Args:
+        container: Running Lambda container
+        event: Event payload with feed_type and input_path
+        timeout: Request timeout in seconds
+
+    Returns:
+        Lambda response as dict
+    """
     port = container.get_exposed_port(8080)
       
     url = f"http://localhost:{port}/2015-03-31/functions/function/invocations"
     
-    response = requests.post(url, json={}, timeout=timeout)
+    response = requests.post(url, json=event, timeout=timeout)
     return response.json()
 
 def test_valid_input(postgres_db, docker_network):
@@ -77,22 +86,22 @@ def test_valid_input(postgres_db, docker_network):
             result = conn.execute(text("SELECT COUNT(*) FROM canonical.patient")).scalar_one()
             assert result == 0, f"Expected 0 records in canonical.patient, got {result}"
 
-            result = invoke_lambda(container)
-
-            #print("=== FULL RESPONSE ===")
-            #print(json.dumps(result, indent=2))
-
-            #logs = container.get_logs()
-            #print("=== CONTAINER LOGS ===")
-            #print(logs)               
+            # Invoke Lambda with proper event structure
+            event = {
+                "feed_type": "gp",
+                "input_path": "file:///input"
+            }
+            result = invoke_lambda(container, event)
             
             assert result["statusCode"] == 200
             
             response_body = json.loads(result["body"])
             assert "records_processed" in response_body
             assert "records_stored" in response_body
+            assert "feed_type" in response_body
             assert response_body["records_processed"] == 2, f"Expected 2 records processed, got {response_body['records_processed']}"
             assert response_body["records_stored"] == 2, f"Expected 2 records stored, got {response_body['records_stored']}"
+            assert response_body["feed_type"] == "gp", f"Expected feed_type 'gp', got {response_body['feed_type']}"
 
             # verify db contents
             result = conn.execute(text("SELECT COUNT(*) FROM canonical.patient")).scalar_one()
@@ -104,8 +113,3 @@ def test_valid_input(postgres_db, docker_network):
                     actual_value = actual[field]
                     assert actual_value == expected_value, \
                         f"Patient {i+1} - Expected {field} '{expected_value}', got '{actual_value}'"            
-
-
-
-            
-

@@ -13,7 +13,7 @@ from canonical_feed_config import get_feed_config, FEED_CONFIGS
 
 # Configure logging
 logger = logging.getLogger()
-log_level = os.getenv("LOG_LEVEL", "INFO")
+log_level = os.environ.get("LOG_LEVEL", "INFO")
 logger.setLevel(log_level.upper())
 
 # Global cache
@@ -162,8 +162,8 @@ def _write_patients(output_df: pd.DataFrame, engine: Engine):
         output_df: DataFrame containing canonical Patient records
         engine: SQLAlchemy engine for database connection
     """
-    schema = os.getenv("OUTPUT_DB_SCHEMA", "canonical")
-    table = os.getenv("OUTPUT_DB_TABLE", "patient")
+    schema = os.environ.get("OUTPUT_DB_SCHEMA", "canonical")
+    table = os.environ.get("OUTPUT_DB_TABLE", "patient")
 
     try:
         output_df.to_sql(table, engine, if_exists="append", index=False, schema=schema)
@@ -196,16 +196,16 @@ def _get_db_credentials() -> Tuple[str | None, str | None]:
     Returns a tuple (username, password) using cached values if available.
     """
     # For testing - check direct env vars first
-    username = os.getenv("OUTPUT_DB_USERNAME")
-    password = os.getenv("OUTPUT_DB_PASSWORD")
+    username = os.environ.get("OUTPUT_DB_USERNAME")
+    password = os.environ.get("OUTPUT_DB_PASSWORD")
 
     if username and password:
         return username, password
 
     global _cached_username, _cached_password
 
-    OUTPUT_DB_USERNAME_SECRET = os.getenv("OUTPUT_DB_USERNAME_SECRET")
-    OUTPUT_DB_PASSWORD_SECRET = os.getenv("OUTPUT_DB_PASSWORD_SECRET")
+    OUTPUT_DB_USERNAME_SECRET = os.environ.get("OUTPUT_DB_USERNAME_SECRET")
+    OUTPUT_DB_PASSWORD_SECRET = os.environ.get("OUTPUT_DB_PASSWORD_SECRET")
 
     if not OUTPUT_DB_USERNAME_SECRET or not OUTPUT_DB_PASSWORD_SECRET:
         logger.error(f"Missing environment variables for database credentials")
@@ -226,9 +226,9 @@ def _get_output_db_url() -> str | None:
     """
     Constructs the database URL using credentials and environment variables.
     """
-    DB_HOST = os.getenv("OUTPUT_DB_HOST", "127.0.0.1")
-    DB_PORT = os.getenv("OUTPUT_DB_PORT", "5432")
-    DB_NAME = os.getenv("OUTPUT_DB_NAME", "ldp")
+    DB_HOST = os.environ.get("OUTPUT_DB_HOST", "127.0.0.1")
+    DB_PORT = os.environ.get("OUTPUT_DB_PORT", "5432")
+    DB_NAME = os.environ.get("OUTPUT_DB_NAME", "ldp")
 
     username, password = _get_db_credentials()
 

@@ -70,3 +70,4 @@ lambda_functions/cohort_data_processing/.start_lambda.py
 lambda_functions/pseudonymisation/.start_lambda.py
 layers/pseudonymised/.start_lambda.py
 layers/ig-conformance/.start_lambda.py
+layers/canonical/.start_lambda.py

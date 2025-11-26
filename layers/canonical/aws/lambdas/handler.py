@@ -6,63 +6,110 @@ import pandas as pd
 import fsspec
 import boto3
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Engine
-from pipeline.emis_gprecord import run
+from canonical_processor import run
+from canonical_feed_config import get_feed_config, FEED_CONFIGS
 
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'), override=True)
 # Configure logging
 logger = logging.getLogger()
-log_level = os.getenv("LOG_LEVEL", "INFO")  # default to INFO
+log_level = os.getenv("LOG_LEVEL", "INFO")
 logger.setLevel(log_level.upper())
 
 # Global cache
 _cached_username = None
 _cached_password = None
 
+
+def _validate_event(event: Dict[str, Any]) -> str | None:
+    if not event:
+        return "Event is empty"
+    
+    if 'feed_type' not in event:
+        return "Missing required parameter: feed_type"
+    
+    if 'input_path' not in event:
+        return "Missing required parameter: input_path"
+    
+    feed_type = event['feed_type']
+    if not isinstance(feed_type, str) or not feed_type.strip():
+        return "Invalid feed_type: must be a non-empty string"
+    
+    input_path = event['input_path']
+    if not isinstance(input_path, str) or not input_path.strip():
+        return "Invalid input_path: must be a non-empty string"
+
+    if feed_type.lower() not in FEED_CONFIGS:
+        supported_feeds = ', '.join(FEED_CONFIGS.keys())
+        return f"Unsupported feed_type: {feed_type}. Supported types: {supported_feeds}"
+    
+    return None
+
+
 def lambda_handler(event, context):
     # read file from S3 -  df = pd.read_csv("path/to/file.csv", header=[0, 1])
-    # pass to run function from layers/canonical/pipeline/emis_gprecord.py
+    # pass to run function from layers/canonical/pipeline/canonical_processor.py
     # write output to our database
     response = {}
 
     try:
-        logger.info("Starting GP pipeline execution")
+        logger.info("Starting canonical pipeline execution")
         logger.info(f"Event: {json.dumps(event, default=str)}")
 
-        input_location = os.getenv("INPUT_LOCATION")
-        output_location = _get_output_db_url();
-
-        if input_location and output_location:
-            input = _read_patients(input_location)
-            output = run(input)
-            _write_patients(output, create_engine(output_location))
-
-            # log success return success response
-            logger.info("GP pipeline execution completed successfully")
-            response = _get_response(
-                message="GP pipeline execution completed successfully",
-                request_id=context.aws_request_id,
-                status_code=200,
-                records_processed=len(input),
-                records_stored=len(output)
-            )
-        else:
-            response = _get_response(
-                message='Missing one or more of the required environment variables - INPUT_LOCATION, OUTPUT_LOCATION',
-                request_id=context.aws_request_id,
+        validation_error = _validate_event(event)
+        if validation_error:
+            return _get_response(
+                message=validation_error,
+                request_id="123", #context.aws_request_id,
                 status_code=400
             )
+
+        feed_type = event['feed_type'].lower()
+        input_path = event['input_path']
+        output_location = _get_output_db_url()
+
+        if not output_location:
+            return _get_response(
+                message='Failed to configure database connection',
+                request_id="123", #context.aws_request_id,
+                status_code=500
+            )
+
+        logger.info(f"Processing feed type: {feed_type.upper()}")
+        logger.info(f"Input path: {input_path}")
+        
+        input = _read_patients(input_path, feed_type)
+        output = run(input, feed_type)
+        _write_patients(output, create_engine(output_location))
+
+        logger.info(f"{feed_type.upper()} pipeline execution completed successfully")
+        response = _get_response(
+            message=f"{feed_type.upper()} pipeline execution completed successfully",
+            request_id="123", #context.aws_request_id,
+            status_code=200,
+            records_processed=len(input),
+            records_stored=len(output),
+            feed_type=feed_type
+        )
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}", exc_info=True)
+        response = _get_response(
+            message=f"Validation error: {str(e)}",
+            request_id="123", #context.aws_request_id,
+            status_code=400
+        )
     except Exception as e:
-        logger.error(f"GP pipeline execution failed: {str(e)}", exc_info=True)
+        logger.error(f"Pipeline execution failed: {str(e)}", exc_info=True)
         
         response = _get_response(
-            message=f"GP pipeline execution failed: {str(e)}",
-            request_id=context.aws_request_id,
+            message=f"Pipeline execution failed: {str(e)}",
+            request_id= "123", #context.aws_request_id,
             status_code=500
         )
 
     return response
 
-# HTTP response helpers
 
 def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> Dict[str, Any]:
     """
@@ -89,7 +136,9 @@ def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> 
         'body': json.dumps(body_data)
     }
 
-def _read_patients(path: str) -> pd.DataFrame:
+def _read_patients(path: str, feed_type: str) -> pd.DataFrame:
+    feed_config = get_feed_config(feed_type)
+
     with fsspec.open(path, mode="r", encoding="utf-8") as file:
         if isinstance(file, list):
             raise ValueError(f"Expected one file, got {len(file)}: {path}")
@@ -100,8 +149,8 @@ def _read_patients(path: str) -> pd.DataFrame:
             dtype=str, 
             keep_default_na=False, 
             na_values=['', 'NULL', 'null', 'None'],  
-            skiprows=2, # skip metadata rows
-            header=0 # Single header row
+            skiprows=feed_config.metadata_rows_to_skip,
+            header=0  # Single header row
         )
 
     return df    
@@ -114,9 +163,12 @@ def _write_patients(output_df: pd.DataFrame, engine: Engine):
         output_df: DataFrame containing canonical Patient records
         engine: SQLAlchemy engine for database connection
     """
+    schema = os.getenv("OUTPUT_DB_SCHEMA", "canonical")
+    table = os.getenv("OUTPUT_DB_TABLE", "patient")
+
     try:
-        output_df.to_sql("patient", engine, if_exists="append", index=False, schema="canonical")
-        logger.info(f"Successfully wrote {len(output_df)} canonical Patient records to database")
+        output_df.to_sql(table, engine, if_exists="append", index=False, schema=schema)
+        logger.info(f"Successfully wrote {len(output_df)} canonical Patient records to {schema}.{table}")
     except Exception as e:
         logger.error(f"Failed to write canonical Patient records to database: {e}", exc_info=True)
         raise RuntimeError(f"Failed to write canonical Patient records to database: {str(e)}") 
@@ -145,16 +197,16 @@ def _get_db_credentials() -> Tuple[str | None, str | None]:
     Returns a tuple (username, password) using cached values if available.
     """
     # For testing - check direct env vars first
-    username = os.environ.get("OUTPUT_DB_USERNAME")
-    password = os.environ.get("OUTPUT_DB_PASSWORD")
+    username = os.getenv("OUTPUT_DB_USERNAME")
+    password = os.getenv("OUTPUT_DB_PASSWORD")
 
     if username and password:
         return username, password
 
     global _cached_username, _cached_password
 
-    OUTPUT_DB_USERNAME_SECRET = os.environ.get("OUTPUT_DB_USERNAME_SECRET")
-    OUTPUT_DB_PASSWORD_SECRET = os.environ.get("OUTPUT_DB_PASSWORD_SECRET")  
+    OUTPUT_DB_USERNAME_SECRET = os.getenv("OUTPUT_DB_USERNAME_SECRET")
+    OUTPUT_DB_PASSWORD_SECRET = os.getenv("OUTPUT_DB_PASSWORD_SECRET")
 
     if not OUTPUT_DB_USERNAME_SECRET or not OUTPUT_DB_PASSWORD_SECRET:
         logger.error(f"Missing environment variables for database credentials")
@@ -175,9 +227,9 @@ def _get_output_db_url() -> str | None:
     """
     Constructs the database URL using credentials and environment variables.
     """
-    DB_HOST = os.environ.get("OUTPUT_DB_HOST")
-    DB_PORT = os.environ.get("OUTPUT_DB_PORT", "5432")
-    DB_NAME = os.environ.get("OUTPUT_DB_NAME", "ldp")
+    DB_HOST = os.getenv("OUTPUT_DB_HOST", "127.0.0.1")
+    DB_PORT = os.getenv("OUTPUT_DB_PORT", "5432")
+    DB_NAME = os.getenv("OUTPUT_DB_NAME", "ldp")
 
     username, password = _get_db_credentials()
 

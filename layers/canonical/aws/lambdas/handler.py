@@ -6,12 +6,11 @@ import pandas as pd
 import fsspec
 import boto3
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, Engine
 from canonical_processor import run
 from canonical_feed_config import get_feed_config, FEED_CONFIGS
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'), override=True)
+
 # Configure logging
 logger = logging.getLogger()
 log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -61,7 +60,7 @@ def lambda_handler(event, context):
         if validation_error:
             return _get_response(
                 message=validation_error,
-                request_id="123", #context.aws_request_id,
+                request_id=context.aws_request_id,
                 status_code=400
             )
 
@@ -72,7 +71,7 @@ def lambda_handler(event, context):
         if not output_location:
             return _get_response(
                 message='Failed to configure database connection',
-                request_id="123", #context.aws_request_id,
+                request_id=context.aws_request_id,
                 status_code=500
             )
 
@@ -86,7 +85,7 @@ def lambda_handler(event, context):
         logger.info(f"{feed_type.upper()} pipeline execution completed successfully")
         response = _get_response(
             message=f"{feed_type.upper()} pipeline execution completed successfully",
-            request_id="123", #context.aws_request_id,
+            request_id=context.aws_request_id,
             status_code=200,
             records_processed=len(input),
             records_stored=len(output),
@@ -96,7 +95,7 @@ def lambda_handler(event, context):
         logger.error(f"Validation error: {str(e)}", exc_info=True)
         response = _get_response(
             message=f"Validation error: {str(e)}",
-            request_id="123", #context.aws_request_id,
+            request_id=context.aws_request_id,
             status_code=400
         )
     except Exception as e:
@@ -104,7 +103,7 @@ def lambda_handler(event, context):
         
         response = _get_response(
             message=f"Pipeline execution failed: {str(e)}",
-            request_id= "123", #context.aws_request_id,
+            request_id= context.aws_request_id,
             status_code=500
         )
 

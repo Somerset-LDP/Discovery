@@ -9,8 +9,6 @@ Generates AES-256 encryption keys and encrypts them with AWS KMS for secure stor
 
 **Purpose:** Creates 256-bit (32-byte) data encryption keys (DEKs) that are encrypted with a KMS Customer Master Key (CMK) for the pseudonymisation Lambda function.
 
-**Note:** The script generates AES-256 keys (256 bits). For AES-SIV, which requires 512-bit keys, two AES-256 keys can be concatenated, or the key derivation can be handled within the pseudonymisation service.
-
 ## Usage
 
 ```bash

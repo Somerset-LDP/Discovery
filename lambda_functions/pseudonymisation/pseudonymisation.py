@@ -137,8 +137,33 @@ def get_secret(secret_name: str, log: CorrelationLogger) -> str:
 
 
 def get_data_key(key_version: str, config: Config, log: CorrelationLogger) -> bytes:
+    """
+    Deterministic key retrival:
+    - The same key_version always returns the same plaintext data key
+    - KMS.decrypt() does not generate new keys - it decrypts an existing encrypted key
+    - The encrypted key blob is stored in Secrets Manager and never changes (until rotation)
+    - Caching is an optimization and it does not affect determinism
+
+    Process:
+    1. Check in-memory cache (1 hour TTL by default)
+    2. If cache miss: retrieve encrypted blob from config (from Secrets Manager)
+    3. Decrypt the blob using KMS (deterministic: same blob → same plaintext)
+    4. Cache the plaintext key for future requests (performance optimization)
+
+    Args:
+        key_version: Version identifier (e.g., "v1", "v2")
+        config: Configuration containing encrypted key blobs
+        log: Correlation logger
+
+    Returns:
+        bytes: Plaintext data key material (256 bits for AES-SIV)
+
+    Raises:
+        ValueError: If key_version not found in configuration
+    """
     global key_cache
 
+    # Check cache first (performance optimization - reduces KMS calls)
     if key_version in key_cache:
         key_material, timestamp = key_cache[key_version]
         if datetime.now(UTC) - timestamp < timedelta(hours=config.cache_ttl_hours):
@@ -150,17 +175,23 @@ def get_data_key(key_version: str, config: Config, log: CorrelationLogger) -> by
     if key_version not in config.key_versions:
         raise ValueError(f"Key version '{key_version}' not found in configuration")
 
+    # Get the encrypted key blob (base64 encoded)
+    # This is the same encrypted blob every time - stored in Secrets Manager
     encrypted_key_b64 = config.key_versions[key_version]
     encrypted_key_blob = base64.b64decode(encrypted_key_b64)
 
     log.info(f"Decrypting data key for version '{key_version}' using KMS")
 
+    # KMS Decrypt: deterministic operation
+    # Same encrypted blob → always returns the same plaintext key
+    # This is not KMS GenerateDataKey (which would create random keys)
     response = kms_client.decrypt(
-        CiphertextBlob=encrypted_key_blob,
+        CiphertextBlob=encrypted_key_blob,  # Same input every time
         KeyId=config.kms_key_id
     )
-    key_material = response['Plaintext']
+    key_material = response['Plaintext']  # Same output every time
 
+    # Cache for performance (reduces KMS API calls and costs)
     key_cache[key_version] = (key_material, datetime.now(UTC))
     log.info(f"Data key for version '{key_version}' decrypted and cached")
 
@@ -168,6 +199,28 @@ def get_data_key(key_version: str, config: Config, log: CorrelationLogger) -> by
 
 
 def build_aad(field_name: str, key_version: str, config: Config) -> bytes:
+    """
+    Build Additional Authenticated Data (AAD) for AES-SIV encryption.
+
+    AAD is crucial for deterministic pseudonymisation because it binds the ciphertext to:
+    - The specific field being encrypted (e.g., "nhs_number", "name")
+    - The algorithm used (e.g., "aes-siv")
+    - The key version (e.g., "v1", "v2")
+
+    This ensures that:
+    1. Same value in different fields → different pseudonyms
+       encrypt("123", "nhs_number") ≠ encrypt("123", "name")
+    2. Same value with different key versions → different pseudonyms
+       encrypt("123", key_v1) ≠ encrypt("123", key_v2)
+
+    Args:
+        field_name: Name of the field being encrypted
+        key_version: Version of the key being used
+        config: Configuration containing algorithm identifier
+
+    Returns:
+        bytes: JSON-encoded AAD for use in AES-SIV encryption
+    """
     aad = AdditionalAuthenticatedData(
         field=field_name,
         algorithm=config.algorithm,
@@ -182,6 +235,39 @@ def encrypt_value(
     config: Config,
     log: CorrelationLogger
 ) -> str:
+    """
+    Deterministic encryption:
+    This function produces the same pseudonym for the same input value.
+
+    Example:
+        encrypt("1234567890", "nhs_number") → "XYZ789ABC..."
+        encrypt("1234567890", "nhs_number") → "XYZ789ABC..." (identical output)
+
+    How determinism is achieved:
+    1. Same data key for a given key version (KMS decrypt is deterministic)
+    2. AES-SIV algorithm (designed for deterministic authenticated encryption)
+    3. Same AAD (field_name + algorithm + key_version)
+    4. Same input value
+
+    Process:
+    1. Get data key for current version (deterministic - same key always)
+    2. Create AES-SIV cipher with that key
+    3. Build AAD (binds to field name and key version)
+    4. Encrypt value with cipher + AAD (deterministic operation)
+    5. Return base64-encoded pseudonym
+
+    Args:
+        value: Plaintext value to encrypt
+        field_name: Name of field (used in AAD for field binding)
+        config: Configuration with key version and algorithm
+        log: Correlation logger
+
+    Returns:
+        str: Base64-encoded pseudonym (deterministic)
+
+    Raises:
+        ValueError: If value is empty
+    """
     if not value or not value.strip():
         raise ValueError("Value cannot be empty")
 

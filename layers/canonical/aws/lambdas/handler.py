@@ -7,8 +7,8 @@ import fsspec
 import boto3
 from botocore.exceptions import ClientError
 from sqlalchemy import create_engine, Engine
-from canonical_processor import run
-from canonical_feed_config import get_feed_config, FEED_CONFIGS
+from pipeline.canonical_processor import run
+from pipeline.canonical_feed_config import get_feed_config, FEED_CONFIGS
 
 
 # Configure logging

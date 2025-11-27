@@ -138,21 +138,39 @@ def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> 
 def _read_patients(path: str, feed_type: str) -> pd.DataFrame:
     feed_config = get_feed_config(feed_type)
 
-    with fsspec.open(path, mode="r", encoding="utf-8") as file:
-        if isinstance(file, list):
-            raise ValueError(f"Expected one file, got {len(file)}: {path}")
+    try:
+        with fsspec.open(path, mode="r", encoding="utf-8") as file:
+            if isinstance(file, list):
+                raise ValueError(f"Expected one file, got {len(file)}: {path}")
 
-        # Read CSV with all columns as strings to preserve leading zeros and handle data consistently
-        df = pd.read_csv(
-            file, 
-            dtype=str, 
-            keep_default_na=False, 
-            na_values=['', 'NULL', 'null', 'None'],  
-            skiprows=feed_config.metadata_rows_to_skip,
-            header=0  # Single header row
-        )
+            # Read CSV with all columns as strings to preserve leading zeros and handle data consistently
+            df = pd.read_csv(
+                file,
+                dtype=str,
+                keep_default_na=False,
+                na_values=['', 'NULL', 'null', 'None'],
+                skiprows=feed_config.metadata_rows_to_skip,
+                header=0  # Single header row
+            )
 
-    return df    
+            logger.info(f"Successfully read {len(df)} records from {path}")
+            return df
+
+    except FileNotFoundError as e:
+        logger.error(f"File not found: {path}")
+        raise ValueError(f"File not found: {path}") from e
+    except PermissionError as e:
+        logger.error(f"Permission denied reading file: {path}")
+        raise RuntimeError(f"Permission denied reading file: {path}") from e
+    except pd.errors.EmptyDataError as e:
+        logger.error(f"CSV file is empty: {path}")
+        raise ValueError(f"CSV file is empty: {path}") from e
+    except pd.errors.ParserError as e:
+        logger.error(f"Failed to parse CSV file: {path} - {str(e)}")
+        raise ValueError(f"Failed to parse CSV file: {path}") from e
+    except Exception as e:
+        logger.error(f"Unexpected error reading file {path}: {str(e)}", exc_info=True)
+        raise RuntimeError(f"Failed to read file: {str(e)}") from e
 
 def _write_patients(output_df: pd.DataFrame, engine: Engine):    
     """

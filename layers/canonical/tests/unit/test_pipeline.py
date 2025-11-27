@@ -5,8 +5,8 @@ from pipeline.canonical_processor import run
 
 # Expected single-level columns based on GP feed
 expected_columns = [
-    'NHS Number', 'First name', 'Last name', 'Date of birth', 'Postcode', 
-    'First line of address', 'Gender',
+    'NHS Number', 'Given name', 'Family name', 'Date of Birth', 'Postcode',
+    'Number and Street', 'Gender',
     'Value', 'Unit of Measure', 'Date',  # Height measurements
     'Value.1', 'Unit of Measure.1', 'Date.1',  # Weight measurements  
     'Consultation ID', 'Date.2', 'Time', 'Type of Consultation', "User Details' User Type"
@@ -14,12 +14,12 @@ expected_columns = [
 
 # Test Patient Data - Global Variables
 VALID_PATIENT_JOHN = [
-    '111 222 3333',     # NHS Number
-    'John',             # First name
-    'Doe',              # Last name
-    '01-Jan-50',        # Date of birth
+    '1112223333',     # NHS Number
+    'John',             # Given name
+    'Doe',              # Family name
+    '01-Jan-50',        # Date of Birth
     'AB1 2CD',          # Postcode
-    '123 Test Street',  # First line of address
+    '123 Test Street',  # Number and Street
     'Male',             # Gender
     '175',              # Height Value
     'cm',               # Height Unit
@@ -246,7 +246,7 @@ sft_expected_columns = [
 
 VALID_SFT_PATIENT_JOHN = [
     'PAS12345',
-    '111 222 3333',
+    '1112223333',
     'John',
     'Doe',
     '1950-01-01',
@@ -268,7 +268,7 @@ VALID_SFT_PATIENT_JANE = [
 
 INVALID_SFT_PATIENT_EMPTY_NHS = [
     'PAS12345',
-    '',
+    '',                 # Empty NHS Number
     'John',
     'Doe',
     '1950-01-01',
@@ -277,12 +277,67 @@ INVALID_SFT_PATIENT_EMPTY_NHS = [
     '123 Test Street',
 ]
 
+INVALID_SFT_PATIENT_EMPTY_GIVEN_NAME = [
+    'PAS12345',
+    '111 222 3333',
+    '',                 # Empty given name
+    'Doe',
+    '1950-01-01',
+    'Male',
+    'AB1 2CD',
+    '123 Test Street',
+]
+
+INVALID_SFT_PATIENT_EMPTY_FAMILY_NAME = [
+    'PAS12345',
+    '111 222 3333',
+    'John',
+    '',                 # Empty family name
+    '1950-01-01',
+    'Male',
+    'AB1 2CD',
+    '123 Test Street',
+]
+
+INVALID_SFT_PATIENT_EMPTY_DOB = [
+    'PAS12345',
+    '111 222 3333',
+    'John',
+    'Doe',
+    '',                 # Empty date of birth
+    'Male',
+    'AB1 2CD',
+    '123 Test Street',
+]
+
+INVALID_SFT_PATIENT_EMPTY_SEX = [
+    'PAS12345',
+    '111 222 3333',
+    'John',
+    'Doe',
+    '1950-01-01',
+    '',                 # Empty sex
+    'AB1 2CD',
+    '123 Test Street',
+]
+
+INVALID_SFT_PATIENT_EMPTY_POSTCODE = [
+    'PAS12345',
+    '111 222 3333',
+    'John',
+    'Doe',
+    '1950-01-01',
+    'Male',
+    '',                 # Empty postcode
+    '123 Test Street',
+]
+
 INVALID_SFT_PATIENT_WRONG_DATE_FORMAT = [
     'PAS12345',
     '111 222 3333',
     'John',
     'Doe',
-    '01-Jan-50',
+    '01-Jan-50',        # Wrong format - should be YYYY-MM-DD
     'Male',
     'AB1 2CD',
     '123 Test Street',
@@ -323,7 +378,7 @@ def test_valid_complete_records_processing():
     result = run(df, feed_type="gp")
 
     assert len(result) == 1
-    assert result.iloc[0]['nhs_number'] == '1112223333'  # Spaces removed in processing
+    assert result.iloc[0]['nhs_number'] == '1112223333'
     assert result.iloc[0]['given_name'] == 'John'
     assert result.iloc[0]['family_name'] == 'Doe'
     assert result.iloc[0]['height_cm'] == '175'
@@ -362,7 +417,7 @@ def test_mixed_valid_and_invalid_records(mock_logger):
 
     # Only valid record should be in result
     assert len(result) == 1
-    assert result.iloc[0]['nhs_number'] == '1112223333'  # Spaces removed in processing
+    assert result.iloc[0]['nhs_number'] == '1112223333'
     
     # Check that warning was logged for skipped record
     mock_logger_instance.warning.assert_any_call("Record at index 1 failed validation and will be skipped")
@@ -471,7 +526,7 @@ def test_output_dataframe_structure():
     
     # Verify data preservation
     row = result.iloc[0]
-    assert row['nhs_number'] == '1112223333'  # Spaces removed in processing
+    assert row['nhs_number'] == '1112223333'
     assert row['given_name'] == 'John'
     assert row['family_name'] == 'Doe'
     assert row['date_of_birth'] == '01-Jan-50'  # Date remains as string since conversion is commented out
@@ -486,9 +541,7 @@ def test_output_dataframe_structure():
 # ===== SFT Feed Specific Tests =====
 
 def test_sft_valid_complete_records_processing():
-    """Test successful processing of valid SFT records"""
     df = create_single_patient_df(VALID_SFT_PATIENT_JOHN, columns=sft_expected_columns)
-
     result = run(df, feed_type="sft")
 
     assert len(result) == 1
@@ -502,13 +555,18 @@ def test_sft_valid_complete_records_processing():
     ]
 
 
-def test_sft_empty_nhs_number_rejection():
-    """Test rejection of SFT records with empty NHS number"""
-    df = create_single_patient_df(INVALID_SFT_PATIENT_EMPTY_NHS, columns=sft_expected_columns)
-
+@pytest.mark.parametrize("invalid_patient,missing_field", [
+    (INVALID_SFT_PATIENT_EMPTY_NHS, "nhs_number"),
+    (INVALID_SFT_PATIENT_EMPTY_GIVEN_NAME, "given_name"),
+    (INVALID_SFT_PATIENT_EMPTY_FAMILY_NAME, "family_name"),
+    (INVALID_SFT_PATIENT_EMPTY_DOB, "date_of_birth"),
+    (INVALID_SFT_PATIENT_EMPTY_SEX, "sex"),
+    (INVALID_SFT_PATIENT_EMPTY_POSTCODE, "postcode"),
+])
+def test_sft_empty_required_field_rejection(invalid_patient, missing_field):
+    df = create_single_patient_df(invalid_patient, columns=sft_expected_columns)
     result = run(df, feed_type="sft")
-
-    assert len(result) == 0  # Record should be rejected
+    assert len(result) == 0, f"Record with empty {missing_field} should be rejected"
 
 
 # ===== Parametrized Tests for Both Feeds =====
@@ -525,9 +583,7 @@ def test_sft_empty_nhs_number_rejection():
     ]),
 ])
 def test_valid_record_processing_parametrized(feed_type, valid_patient, columns, expected_columns):
-    """Test successful processing of valid records for different feed types"""
     df = create_single_patient_df(valid_patient, columns=columns)
-
     result = run(df, feed_type=feed_type)
 
     assert len(result) == 1
@@ -542,11 +598,8 @@ def test_valid_record_processing_parametrized(feed_type, valid_patient, columns,
     ("sft", INVALID_SFT_PATIENT_EMPTY_NHS, sft_expected_columns),
 ])
 def test_empty_nhs_rejection_parametrized(feed_type, invalid_patient, columns):
-    """Test rejection of records with empty NHS number for different feed types"""
     df = create_single_patient_df(invalid_patient, columns=columns)
-
     result = run(df, feed_type=feed_type)
-
     assert len(result) == 0
 
 
@@ -555,11 +608,8 @@ def test_empty_nhs_rejection_parametrized(feed_type, invalid_patient, columns):
     ("sft", sft_expected_columns),
 ])
 def test_empty_dataframe_handling_parametrized(feed_type, columns):
-    """Test handling of empty DataFrame for different feed types"""
     df = pd.DataFrame(columns=columns)
-
     result = run(df, feed_type=feed_type)
-
     assert len(result) == 0
     assert isinstance(result, pd.DataFrame)
 
@@ -569,9 +619,7 @@ def test_empty_dataframe_handling_parametrized(feed_type, columns):
     ("sft", VALID_SFT_PATIENT_JOHN, VALID_SFT_PATIENT_JANE, sft_expected_columns),
 ])
 def test_multiple_valid_records_parametrized(feed_type, valid_patient1, valid_patient2, columns):
-    """Test processing of multiple valid records for different feed types"""
     df = create_test_dataframe(valid_patient1, valid_patient2, columns=columns)
-
     result = run(df, feed_type=feed_type)
 
     assert len(result) == 2

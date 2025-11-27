@@ -74,9 +74,11 @@ def _parse_record(record: pd.Series, feed_config: FeedConfig) -> Tuple[Dict[str,
                 'weight_observation_time': record.iloc[db_cols['weight_observation_time']]
             }
     except IndexError as e:
-        logger.error(f"Column index out of range: {e}")
+        logger.error(f"Column index out of range while parsing {feed_config.feed_type.upper()} record: {e}")
+        return ({}, {}, {})
     except KeyError as e:
-        logger.error(f"Missing column mapping: {e}")
+        logger.error(f"Missing column mapping in {feed_config.feed_type.upper()} config: {e}")
+        return ({}, {}, {})
 
     return (patient_details, height_data, weight_data)
 
@@ -121,9 +123,6 @@ def _to_canonical(record: pd.Series, feed_config: FeedConfig) -> Dict[str, Any] 
             return canonical_record
 
     # Apply transformations to patient_details
-    # Remove spaces from NHS number
-    patient_details['nhs_number'] = str(patient_details['nhs_number']).replace(' ', '')
-
     # Union the dictionaries together
     if feed_config.validation_rules.get('has_measurements', False):
         canonical_record = {**patient_details, **height_data, **weight_data}
@@ -132,7 +131,7 @@ def _to_canonical(record: pd.Series, feed_config: FeedConfig) -> Dict[str, Any] 
 
     return canonical_record
 
-# TODO - the function has a hard-coded enum for sex. This will be updated in a future iteration to use a FHIR ValueSet
+# TODO - the function has a hard-coded enum for sex (pseudonymised). This will be updated in a future iteration to use a FHIR ValueSet
 # Note that much of a Patient's data is pseudonymised therefore validation is limited to making sure mandatory values are present
 def _is_patient_details_valid(patient_details: Dict[str, Any], feed_config: FeedConfig) -> bool:
     logger = logging.getLogger(__name__)

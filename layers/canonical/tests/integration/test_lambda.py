@@ -112,4 +112,61 @@ def test_valid_input(postgres_db, docker_network):
                 for field, expected_value in expected.items():
                     actual_value = actual[field]
                     assert actual_value == expected_value, \
-                        f"Patient {i+1} - Expected {field} '{expected_value}', got '{actual_value}'"            
+                        f"Patient {i+1} - Expected {field} '{expected_value}', got '{actual_value}'"
+
+
+def test_valid_sft_input(postgres_db, docker_network):
+    """Test successful SFT feed processing"""
+    fixtures_path = Path(__file__).parent.parent / "fixtures"
+    input_location = str(fixtures_path / "sft_patients.csv")
+
+    expected_patients = [
+        {
+            "nhs_number": "1112223333",
+            "given_name": "Leonard",
+            "family_name": "Morse",
+            "sex": "Male"
+        },
+        {
+            "nhs_number": "2221113333",
+            "given_name": "Skylar",
+            "family_name": "Spork",
+            "sex": "Female"
+        }
+    ]
+
+    with create_lambda_container_with_env(input_location, postgres_db, docker_network) as container:
+        with postgres_db.connect() as conn:
+
+            # patient table should be empty
+            result = conn.execute(text("SELECT COUNT(*) FROM canonical.patient")).scalar_one()
+            assert result == 0, f"Expected 0 records in canonical.patient, got {result}"
+
+            # Invoke Lambda with SFT feed type
+            event = {
+                "feed_type": "sft",
+                "input_path": "file:///input"
+            }
+            result = invoke_lambda(container, event)
+
+            assert result["statusCode"] == 200
+
+            response_body = json.loads(result["body"])
+            assert "records_processed" in response_body
+            assert "records_stored" in response_body
+            assert "feed_type" in response_body
+            assert response_body["records_processed"] == 2, f"Expected 2 records processed, got {response_body['records_processed']}"
+            assert response_body["records_stored"] == 2, f"Expected 2 records stored, got {response_body['records_stored']}"
+            assert response_body["feed_type"] == "sft", f"Expected feed_type 'sft', got {response_body['feed_type']}"
+
+            # verify db contents
+            result = conn.execute(text("SELECT COUNT(*) FROM canonical.patient")).scalar_one()
+            assert result == 2, f"Expected 2 patients after insertion, found {result}"
+
+            actual_patients = conn.execute(text("SELECT * FROM canonical.patient")).mappings().fetchall()
+            for i, (actual, expected) in enumerate(zip(actual_patients, expected_patients)):
+                for field, expected_value in expected.items():
+                    actual_value = actual[field]
+                    assert actual_value == expected_value, \
+                        f"Patient {i+1} - Expected {field} '{expected_value}', got '{actual_value}'"
+

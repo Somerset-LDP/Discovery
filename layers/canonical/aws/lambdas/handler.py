@@ -157,19 +157,24 @@ def _read_patients(path: str, feed_type: str) -> pd.DataFrame:
             return df
 
     except FileNotFoundError as e:
-        logger.error(f"File not found: {path}")
-        raise ValueError(f"File not found: {path}") from e
+        msg = f"File not found: {path}"
+        logger.error(msg)
+        raise ValueError(msg) from e
     except PermissionError as e:
-        logger.error(f"Permission denied reading file: {path}")
-        raise RuntimeError(f"Permission denied reading file: {path}") from e
+        msg = f"Permission denied reading file: {path}"
+        logger.error(msg)
+        raise RuntimeError(msg) from e
     except pd.errors.EmptyDataError as e:
-        logger.error(f"CSV file is empty: {path}")
-        raise ValueError(f"CSV file is empty: {path}") from e
+        msg = f"CSV file is empty: {path}"
+        logger.error(msg)
+        raise ValueError(msg) from e
     except pd.errors.ParserError as e:
-        logger.error(f"Failed to parse CSV file: {path} - {str(e)}")
-        raise ValueError(f"Failed to parse CSV file: {path}") from e
+        msg = f"Failed to parse CSV file: {path}"
+        logger.error(msg)
+        raise ValueError(msg) from e
     except Exception as e:
-        logger.error(f"Unexpected error reading file {path}: {str(e)}", exc_info=True)
+        msg = f"Unexpected error reading file {path}: {str(e)}"
+        logger.error(msg, exc_info=True)
         raise RuntimeError(f"Failed to read file: {str(e)}") from e
 
 def _write_patients(output_df: pd.DataFrame, engine: Engine):    
@@ -187,9 +192,10 @@ def _write_patients(output_df: pd.DataFrame, engine: Engine):
         output_df.to_sql(table, engine, if_exists="append", index=False, schema=schema)
         logger.info(f"Successfully wrote {len(output_df)} canonical Patient records to {schema}.{table}")
     except Exception as e:
-        logger.error(f"Failed to write canonical Patient records to database: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to write canonical Patient records to database: {str(e)}") 
-    
+        msg = f"Failed to write canonical Patient records to database: {str(e)}"
+        logger.error(msg, exc_info=True)
+        raise RuntimeError(msg) from e
+
 def _get_secret_value(secret_name: str) -> str | None:
     """
     Fetches a raw (non-JSON) secret string from AWS Secrets Manager.

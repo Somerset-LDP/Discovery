@@ -28,7 +28,7 @@ jobs:
     steps:
       - name: Determine build pipeline type
         run: |
-          if [[ "${{ github.event.inputs.lambda }}" == "ig_conformance" || \
+          if [[ "${{ github.event.inputs.lambda }}" == "ig-conformance" || \
                 "${{ github.event.inputs.lambda }}" == "canonical" ]]; then
             echo "LAMBDA_TYPE=docker" >> $GITHUB_ENV
           else

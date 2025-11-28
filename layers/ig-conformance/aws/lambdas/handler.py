@@ -215,7 +215,7 @@ def _get_response(message: str, request_id: str, status_code: int, **kwargs) -> 
     }
 
 
-def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
+def _encrypt(field_name: str, values: List[str]) -> List[str | None] | None:
     skip_encryption = os.getenv("SKIP_ENCRYPTION")
 
     if skip_encryption:
@@ -230,28 +230,53 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
         logger.warning(f"Values list is None or empty for field: {field_name}")
         return None
 
-    valid_values = [v for v in values if v and str(v).lower() not in ['nan', 'none', 'null', '']]
-    if len(valid_values) != len(values):
-        logger.warning(
-            f"Filtered out {len(values) - len(valid_values)} invalid values from list for field: {field_name}")
+    # Filter out invalid values and track their positions
+    result = []
+    invalid_count = 0
+
+    for v in values:
+        if v and str(v).lower() not in ['nan', 'none', 'null', '']:
+            result.append(v)
+        else:
+            result.append(None)
+            invalid_count += 1
+
+    if invalid_count > 0:
+        logger.warning(f"Found {invalid_count} invalid values in list for field: {field_name}")
+
+    # Get only valid values for encryption
+    valid_values = [v for v in result if v is not None]
+
     if not valid_values:
-        logger.warning(f"No valid values in list for field: {field_name}")
-        return None
+        logger.warning(f"No valid values in list for field: {field_name}, returning None for all")
+        return result
 
+    # Encrypt valid values
     chunk_size = int(os.getenv("PSEUDONYMISATION_BATCH_SIZE", "10000"))
+    encrypted_valid = _encrypt_batch(field_name, valid_values, chunk_size)
 
-    if len(valid_values) <= chunk_size:
-        return _encrypt_chunk(field_name, valid_values)
+    # Replace valid values with encrypted ones
+    encrypted_iter = iter(encrypted_valid)
+    for i in range(len(result)):
+        if result[i] is not None:
+            result[i] = next(encrypted_iter)
 
-    logger.info(f"Large batch detected ({len(valid_values)} values). Processing in chunks of {chunk_size}")
+    logger.info(f"Successfully encrypted {len(valid_values)} valid values out of {len(values)} total for field: {field_name}")
+    return result
 
-    encrypted_chunks = []
-    total_chunks = (len(valid_values) + chunk_size - 1) // chunk_size
 
-    for i in range(0, len(valid_values), chunk_size):
-        chunk = valid_values[i:i + chunk_size]
+def _encrypt_batch(field_name: str, values: List[str], chunk_size: int) -> List[str]:
+    """Encrypt values in batches if needed."""
+    if len(values) <= chunk_size:
+        return _encrypt_chunk(field_name, values)
+
+    logger.info(f"Large batch detected ({len(values)} values). Processing in chunks of {chunk_size}")
+    encrypted = []
+    total_chunks = (len(values) + chunk_size - 1) // chunk_size
+
+    for i in range(0, len(values), chunk_size):
+        chunk = values[i:i + chunk_size]
         chunk_num = (i // chunk_size) + 1
-
         logger.info(f"Processing chunk {chunk_num}/{total_chunks} ({len(chunk)} values)")
 
         encrypted_chunk = _encrypt_chunk(field_name, chunk)
@@ -260,10 +285,10 @@ def _encrypt(field_name: str, values: List[str]) -> List[str] | None:
             logger.error(msg)
             raise ValueError(msg)
 
-        encrypted_chunks.extend(encrypted_chunk)
+        encrypted.extend(encrypted_chunk)
 
-    logger.info(f"Successfully processed all {total_chunks} chunks ({len(encrypted_chunks)} total encrypted values)")
-    return encrypted_chunks
+    logger.info(f"Successfully processed all {total_chunks} chunks ({len(encrypted)} total encrypted values)")
+    return encrypted
 
 
 def _encrypt_chunk(field_name: str, values: List[str]) -> List[str] | None:

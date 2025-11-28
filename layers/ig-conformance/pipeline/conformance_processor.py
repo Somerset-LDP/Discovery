@@ -31,7 +31,7 @@ def run(
         nhs_numbers_for_records.append(cleaned_nhs)
     
     logger.info(f"Found {len(valid_records)} valid records with NHS numbers")
-    
+
     # Step 2: Get unique NHS numbers for batch encryption
     unique_nhs_numbers = list(set(nhs_numbers_for_records))
     logger.info(f"Found {len(unique_nhs_numbers)} unique NHS numbers from {len(nhs_numbers_for_records)} valid records")
@@ -48,6 +48,7 @@ def run(
     filtered_records = []
     cohort_nhs_numbers = set()  # Track which NHS numbers are in cohort for logging
 
+    failed_encryption_count = 0
     for record, nhs_number in zip(valid_records, nhs_numbers_for_records):
         encrypted_nhs = encrypted_mapping.get(nhs_number)
         if encrypted_nhs:
@@ -56,7 +57,10 @@ def run(
                 cohort_nhs_numbers.add(nhs_number)
             # Note: We don't log per-record here to avoid spam, we'll log summary below
         else:
-            logger.error(f"Failed to encrypt NHS number: {nhs_number}")
+            failed_encryption_count += 1
+
+    if failed_encryption_count > 0:
+        logger.error(f"Failed to encrypt {failed_encryption_count} NHS numbers")
 
     logger.info(f"Found {len(cohort_nhs_numbers)} unique NHS numbers in cohort")
     logger.info(f"Retained {len(filtered_records)} records (including duplicates) from an initial {len(records)} records")
@@ -73,7 +77,7 @@ def _batch_encrypt_nhs_numbers(nhs_numbers: List[str], encrypt: Callable[[str, L
         feed_config: Feed configuration for error reporting
 
     Returns:
-        Dict mapping original NHS numbers to encrypted values
+        Dict mapping original NHS numbers to encrypted values (excludes None values)
     """
     logger = logging.getLogger(__name__)
     
@@ -85,14 +89,29 @@ def _batch_encrypt_nhs_numbers(nhs_numbers: List[str], encrypt: Callable[[str, L
     try:
         encrypted_values = encrypt("nhs_number", nhs_numbers)
         
-        if encrypted_values and len(encrypted_values) == len(nhs_numbers):
-            mapping = dict(zip(nhs_numbers, encrypted_values))
-            logger.info(f"Successfully created encryption mapping for {len(mapping)} NHS numbers")
-            return mapping
-        else:
-            logger.error(f"Batch encryption returned unexpected format: {type(encrypted_values)}, {len(encrypted_values)}, expected list of {len(nhs_numbers)} values")
+        if encrypted_values is None:
+            logger.error("Batch encryption returned None")
+            raise RuntimeError("Batch encryption failed: encryption service returned None")
+
+        if len(encrypted_values) != len(nhs_numbers):
+            logger.error(f"Batch encryption returned unexpected length: expected {len(nhs_numbers)}, got {len(encrypted_values)}")
             raise RuntimeError(f"Batch encryption failed: expected list of {len(nhs_numbers)} values, got {len(encrypted_values)}")
-            
+
+        # Create mapping, filtering out None values (invalid NHS numbers that couldn't be encrypted)
+        mapping = {}
+        none_count = 0
+        for nhs, encrypted in zip(nhs_numbers, encrypted_values):
+            if encrypted is not None:
+                mapping[nhs] = encrypted
+            else:
+                none_count += 1
+
+        if none_count > 0:
+            logger.warning(f"Skipped {none_count} NHS numbers that could not be encrypted (invalid values)")
+
+        logger.info(f"Successfully created encryption mapping for {len(mapping)} NHS numbers")
+        return mapping
+
     except Exception as e:
         logger.error(f"Error in batch encryption: {e}")
         raise RuntimeError(f"Failed to process {feed_config.feed_type.upper()} records due to batch encryption service error: {str(e)}")

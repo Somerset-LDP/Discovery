@@ -8,7 +8,7 @@ on:
         required: true
         type: choice
         options:
-          - ig_conformance
+          - ig-conformance
           - canonical
           - pseudonymised
           - cohort-data-processing
@@ -80,9 +80,10 @@ jobs:
       - name: Update Lambda function with new Docker image
         if: env.LAMBDA_TYPE == 'docker' && github.event.inputs.redeploy == 'true'
         run: |
+          LAMBDA_NAME=$(echo "${{ github.event.inputs.lambda }}" | tr '-' '_')
           IMAGE_URI="647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:${{ github.event.inputs.lambda }}-latest"
           aws lambda update-function-code \
-            --function-name "${{ github.event.inputs.lambda }}" \
+            --function-name "$LAMBDA_NAME" \
             --image-uri "$IMAGE_URI"
 
       - name: Update Lambda function with new code from S3

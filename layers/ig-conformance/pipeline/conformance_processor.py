@@ -90,8 +90,8 @@ def _batch_encrypt_nhs_numbers(nhs_numbers: List[str], encrypt: Callable[[str, L
             logger.info(f"Successfully created encryption mapping for {len(mapping)} NHS numbers")
             return mapping
         else:
-            logger.error(f"Batch encryption returned unexpected format: {type(encrypted_values)}, expected list of {len(nhs_numbers)} values")
-            raise RuntimeError(f"Batch encryption failed: expected list of {len(nhs_numbers)} values, got {type(encrypted_values)}")
+            logger.error(f"Batch encryption returned unexpected format: {type(encrypted_values)}, {len(encrypted_values)}, expected list of {len(nhs_numbers)} values")
+            raise RuntimeError(f"Batch encryption failed: expected list of {len(nhs_numbers)} values, got {len(encrypted_values)}")
             
     except Exception as e:
         logger.error(f"Error in batch encryption: {e}")

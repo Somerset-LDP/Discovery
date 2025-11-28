@@ -387,13 +387,13 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         field_name = event['field_name']
         field_value = event['field_value']
 
-        log.info("Request received", extra={'action': action, 'field_name': field_name})
+        log.info("Request received", extra={'action': action, 'field_name': field_name, 'number of values': len(field_value)})
 
         config = load_config(log)
 
         if action == 'encrypt':
             result = process_field_encryption(field_name, field_value, config, log)
-            log.info("Encryption successful", extra={'field_name': field_name})
+            log.info("Encryption successful", extra={'field_name': field_name, 'number of values': len(result) if isinstance(result, list) else 1})
             response = PseudonymisationResponse(field_name=field_name, field_value=result)
             return response.to_dict()
         elif action == 'reidentify':

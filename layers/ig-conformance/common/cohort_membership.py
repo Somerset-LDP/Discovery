@@ -114,7 +114,7 @@ def is_cohort_member(nhs_number: str, cohort_members: pd.Series) -> bool:
     try:
         cleaned_cohort_members = cohort_members.astype(str).str.strip().values
         logger.debug(f"About to check if NHS number {nhs_number} is in the cohort with {len(cleaned_cohort_members)} members")
-        
+
         is_cohort_member = str(nhs_number).strip() in cleaned_cohort_members
         logger.debug(f"NHS number {nhs_number} is member of cohort: {is_cohort_member}")
 

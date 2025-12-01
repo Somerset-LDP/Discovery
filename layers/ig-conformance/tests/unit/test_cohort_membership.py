@@ -215,7 +215,7 @@ def test_null_nhs_number_returns_false_with_warning(valid_cohort_series, caplog)
     with caplog.at_level(logging.WARNING):
         result = is_cohort_member(None, valid_cohort_series)  # type: ignore
         assert result is False
-        assert "NHS number is None or empty" in caplog.text
+        assert "Empty or invalid identifier" in caplog.text
 
 
 def test_empty_string_nhs_number_returns_false_with_warning(valid_cohort_series, caplog):
@@ -226,7 +226,7 @@ def test_empty_string_nhs_number_returns_false_with_warning(valid_cohort_series,
     with caplog.at_level(logging.WARNING):
         result = is_cohort_member('', valid_cohort_series)
         assert result is False
-        assert "NHS number is None or empty" in caplog.text
+        assert "Empty or invalid identifier" in caplog.text
 
 
 def test_whitespace_only_nhs_number_returns_false_with_warning(valid_cohort_series, caplog):
@@ -242,7 +242,7 @@ def test_whitespace_only_nhs_number_returns_false_with_warning(valid_cohort_seri
         with caplog.at_level(logging.WARNING):
             result = is_cohort_member(whitespace_input, valid_cohort_series)
             assert result is False
-            assert "NHS number is None or empty" in caplog.text
+            assert "Empty or invalid identifier" in caplog.text
 
 
 # Test 3: Whitespace normalization
@@ -349,22 +349,8 @@ def test_runtime_error_handling_for_unexpected_errors(valid_cohort_series):
     """
     # Mock a scenario that could cause an unexpected error during processing
     with patch.object(valid_cohort_series, 'astype', side_effect=Exception("Simulated unexpected error")):
-        with pytest.raises(RuntimeError, match="Error checking cohort membership for NHS number 1234567890"):
+        with pytest.raises(RuntimeError, match="Error checking cohort membership"):
             is_cohort_member('1234567890', valid_cohort_series)
-
-
-def test_debug_logging_provides_detailed_information(valid_cohort_series, caplog):
-    """
-    Test 5d: Edge cases - Debug logging
-    Test that debug logging provides detailed information about the cohort membership check process.
-    """
-    with caplog.at_level(logging.DEBUG):
-        result = is_cohort_member('1234567890', valid_cohort_series)
-        assert result is True
-        
-        # Check that debug logs contain expected information
-        log_text = caplog.text
-        assert "About to check if NHS number 1234567890 is in the cohort with 3 members" in log_text
 
 
 # ==========================================
@@ -466,6 +452,7 @@ def test_file_not_found_with_file_protocol():
         read_cohort_members("file:///non/existent/path.csv")
 
 
+@pytest.mark.skipif(os.name == 'nt', reason="Permission handling differs on Windows")
 def test_permission_denied():
     """Test PermissionError for unreadable file"""
     # Create a temporary file and remove read permissions
@@ -476,7 +463,6 @@ def test_permission_denied():
     try:
         # Remove read permissions
         os.chmod(temp_file, 0o000)
-        
         with pytest.raises(PermissionError, match="Access denied"):
             read_cohort_members(temp_file)
     finally:

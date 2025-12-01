@@ -32,10 +32,10 @@ def run(records: pd.DataFrame, feed_type: str) -> pd.DataFrame:
             existing_record = canonical_records.get(nhs_number, None)
             if existing_record:
                 if canonical_record != existing_record:
-                    logger.warning(f"Conflicting record found for NHS number {nhs_number} at index {index}")
+                    logger.warning(f"Conflicting record found at index {index}")
             else:
                 canonical_records[nhs_number] = canonical_record
-                logger.debug(f"Added new patient with NHS number {nhs_number}")                
+                logger.debug(f"Added new patient at index {index}")
         else:
             logger.warning(f"Record at index {index} failed validation and will be skipped")
 
@@ -142,7 +142,7 @@ def _is_patient_details_valid(patient_details: Dict[str, Any], feed_config: Feed
     for field in required_fields:
         value = patient_details.get(field)
         if pd.isna(value) or str(value).strip() == "":
-            logger.warning(f"Missing or empty value in Patient Details for required field '{field}': '{value}'")
+            logger.warning(f"Missing or empty value in Patient Details for required field '{field}'")
             return False
         
     logger.debug("All patient details validation checks passed")

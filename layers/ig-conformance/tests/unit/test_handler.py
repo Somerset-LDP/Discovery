@@ -5,8 +5,8 @@ import os
 import io
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from lambdas import handler as handler_module
-from lambdas.handler import lambda_handler
+from aws.lambdas import handler as handler_module
+from aws.lambdas.handler import lambda_handler, _encrypt
 
 # Fixtures
 
@@ -984,4 +984,87 @@ P001,1234567890,Alice Johnson"""
         assert response['statusCode'] == 200
         body_data = json.loads(response['body'])
         assert body_data['feed_type'] == 'sft'
+
+
+# Tests for _encrypt function - Index Preservation
+
+@patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}, clear=False)
+@patch('aws.lambdas.handler._encrypt_chunk')
+def test_encrypt_preserves_length_with_all_valid_values(mock_encrypt_chunk):
+    """Test that encryption returns same length list when all values are valid."""
+    input_values = ["1234567890", "0987654321", "1111111111"]
+    mock_encrypt_chunk.return_value = ["encrypted_1", "encrypted_2", "encrypted_3"]
+
+    result = _encrypt("nhs_number", input_values)
+
+    assert result is not None
+    assert len(result) == len(input_values)
+    assert all(r is not None for r in result)
+
+
+@patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}, clear=False)
+@patch('aws.lambdas.handler._encrypt_chunk')
+def test_encrypt_preserves_length_with_none_values(mock_encrypt_chunk):
+    """Test that None values preserve their positions."""
+    input_values = ["1234567890", None, "0987654321"]
+    mock_encrypt_chunk.return_value = ["encrypted_1", "encrypted_2"]
+
+    result = _encrypt("nhs_number", input_values)
+
+    assert result is not None
+    assert len(result) == len(input_values)
+    assert result[0] == "encrypted_1"
+    assert result[1] is None
+    assert result[2] == "encrypted_2"
+
+
+@patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}, clear=False)
+@patch('aws.lambdas.handler._encrypt_chunk')
+def test_encrypt_preserves_length_with_empty_strings(mock_encrypt_chunk):
+    """Test that empty strings are treated as None and preserve position."""
+    input_values = ["1234567890", "", "0987654321"]
+    mock_encrypt_chunk.return_value = ["encrypted_1", "encrypted_2"]
+
+    result = _encrypt("nhs_number", input_values)
+
+    assert result is not None
+    assert len(result) == len(input_values)
+    assert result[0] == "encrypted_1"
+    assert result[1] is None
+    assert result[2] == "encrypted_2"
+
+
+@patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}, clear=False)
+@patch('aws.lambdas.handler._encrypt_chunk')
+def test_encrypt_preserves_length_with_multiple_invalid_values(mock_encrypt_chunk):
+    """Test that multiple invalid values (None, empty, 'nan') preserve their positions."""
+    input_values = ["1234567890", None, "", "0987654321", "nan", "1111111111"]
+    mock_encrypt_chunk.return_value = ["encrypted_1", "encrypted_2", "encrypted_3"]
+
+    result = _encrypt("nhs_number", input_values)
+
+    assert result is not None
+    assert len(result) == len(input_values)
+    assert result[0] == "encrypted_1"
+    assert result[1] is None
+    assert result[2] is None
+    assert result[3] == "encrypted_2"
+    assert result[4] is None
+    assert result[5] == "encrypted_3"
+
+
+@patch.dict(os.environ, {'SKIP_ENCRYPTION': ''}, clear=False)
+@patch('aws.lambdas.handler._encrypt_chunk')
+def test_encrypt_with_all_invalid_values_returns_all_none(mock_encrypt_chunk):
+    """Test that list of all invalid values returns list of None with same length."""
+    input_values = [None, "", "nan", "null", "None"]
+
+    result = _encrypt("nhs_number", input_values)
+
+    assert result is not None
+    assert len(result) == len(input_values)
+    assert all(r is None for r in result)
+    # Should not call encrypt_chunk since no valid values
+    mock_encrypt_chunk.assert_not_called()
+
 

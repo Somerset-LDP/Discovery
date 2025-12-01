@@ -127,6 +127,7 @@ def assert_response(response, expected_status=200, expected_message=None, expect
         data = body["data"]
         assert len(data) == len(expected_data), f"Expected {len(expected_data)} data items, got {len(data)}"
         for expected, actual in zip(expected_data, data):
+            print(f"Checking expected patient data: {expected} against actual: {actual}")
             for k, v in expected.items():
                 assert actual.get(k) == v, f"Expected data field {k}={v}, got {actual.get(k)}"
 
@@ -167,6 +168,7 @@ def test_successful_single_patient_exact_match_via_database(postgres_db, docker_
         expected_data=[to_expected_patient(patient, [existing_patient_id])]
     )
 
+# this test no longer works as we have a min set of search fields. We'd need them to have the same FN etc
 def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docker_network):
     """
     Test that a partial query (e.g., only surname and postcode) executes a SQL query 
@@ -175,7 +177,7 @@ def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docke
     # ARRANGE: Insert multiple patients with same surname and postcode
     patients = [
         make_patient("9434765919", "John", "Smith", "1980-01-15", "SW1A 1AA", "male", True),
-        make_patient("9434765870", "Jane", "Smith", "1975-06-22", "SW1A 1AA", "female", True),
+        make_patient("9434765870", "John", "Smith", "1980-01-15", "SW1A 1AA", "male", True),
         make_patient("9434765828", "Bob", "Smith", "1990-03-10", "SW1A 1AA", "male", True)
     ]
     with postgres_db.connect() as conn:
@@ -184,7 +186,7 @@ def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docke
         print(f"Inserted 3 test patients with IDs: {patient_id_1}, {patient_id_2}, {patient_id_3}")
 
     # Prepare Lambda event with partial data (only last name and postcode have values)
-    event_patient = make_patient(last_name="Smith", postcode="SW1A 1AA")
+    event_patient = make_patient(first_name="John", last_name="Smith", dob="1980-01-15", postcode="SW1A 1AA", sex="male")
     event = {
         "patients": [to_event_patient(event_patient)]
     }
@@ -199,7 +201,7 @@ def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docke
         expected_status=200,
         expected_message="Patient Matching completed successfully",
         expected_counts={"total": 1, "single": 0, "multiple": 1, "zero": 0},
-        expected_data=[to_expected_patient(event_patient, [patient_id_1, patient_id_2, patient_id_3])]
+        expected_data=[to_expected_patient(event_patient, [patient_id_1, patient_id_2])]
     )
 
 def test_no_match_creates_new_unverified_patient(postgres_db, docker_network):
@@ -272,14 +274,14 @@ def test_verified_patient_match_excludes_unverified(postgres_db, docker_network)
     # ARRANGE: Insert two patients with same surname and postcode - one verified, one unverified
     patients = [
         make_patient("9434765919", "John", "Williams", "1980-01-15", "BS1 5TH", "male", True),
-        make_patient("9434765870", "Jane", "Williams", "1975-06-22", "BS1 5TH", "female", False)
+        make_patient("9434765870", "John", "Williams", "1980-01-15", "BS1 5TH", "male", False),
     ]
     with postgres_db.connect() as conn:
         verified_patient_id, unverified_patient_id = insert_patients(conn, patients)
         print(f"Inserted verified patient ID: {verified_patient_id}, unverified patient ID: {unverified_patient_id}")
 
     # Prepare Lambda event with partial data (only last name and postcode)
-    event_patient = make_patient(last_name="Williams", postcode="BS1 5TH")
+    event_patient = make_patient(first_name="John", last_name="Williams", dob="1980-01-15", postcode="BS1 5TH", sex="male")
     event = {
         "patients": [to_event_patient(event_patient)]
     }
@@ -306,26 +308,24 @@ def test_batch_request_with_mixed_matching_outcomes(postgres_db, docker_network)
     - Patient 4: Insufficient data, rejected (zero patient_ids)
     """
     # ARRANGE: Insert test patients into the database
+
     patients = [
-        make_patient("1111111111", "Alice", "Brown", "1985-03-20", "E1 6AN", "female", True),
-        make_patient("2222222222", "John", "Smith", "1980-01-15", "SW1A 1AA", "male", True),
-        make_patient("3333333333", "Jane", "Smith", "1975-06-22", "SW1A 1AA", "female", True),
-        make_patient("4444444444", "Bob", "Smith", "1990-03-10", "SW1A 1AA", "male", True)
+        make_patient("9434765919", "Alice", "Brown", "1985-03-20", "E1 6AN", "female", True),
+        make_patient("4857773456", "John", "Smith", "1980-01-15", "SW1A 1AA", "male", True),
+        make_patient("9876543210", "John", "Smith", "1980-01-15", "SW1A 1AA", "male", True),
+        make_patient("4857773457", "Jane", "Smith", "1975-06-22", "SW1A 1AA", "female", True),
+        make_patient("4857773465", "Bob", "Smith", "1990-03-10", "SW1A 1AA", "male", True)
     ]
     with postgres_db.connect() as conn:
-        ids = insert_patients(conn, patients)
-        exact_match_id = ids[0]
-        multi_match_id_1 = ids[1]
-        multi_match_id_2 = ids[2]
-        multi_match_id_3 = ids[3]
-        print(f"Inserted test patients - Exact match: {exact_match_id}, Multiple match: {multi_match_id_1}, {multi_match_id_2}, {multi_match_id_3}")
+        patient_ids = insert_patients(conn, patients)
     
     # Prepare Lambda event with batch of 4 patients
     event_patients = [
-        make_patient("1111111111", "Alice", "Brown", "1985-03-20", "E1 6AN", "female"),
-        make_patient(last_name="Smith", postcode="SW1A 1AA"),
-        make_patient("9999999999", "Charlie", "Davis", "1995-07-14", "M1 1AE", "male"),
-        make_patient()
+        make_patient(nhs_number="9434765919", dob="1985-03-20"),  # Exact match
+        make_patient(first_name="John", last_name="Smith", dob="1980-01-15", postcode="SW1A 1AA", sex="male"),  # Multiple matches
+        make_patient(first_name="Charlie", last_name="Davis", dob="1995-07-14", postcode="M1 1AE", sex="male"), # No match
+        make_patient(first_name="Charlie", last_name=None, dob="1995-07-14", postcode="M1 1AE", sex="male"), # # Insufficient data - last name None
+        make_patient() # Insufficient data - no fields
     ]
     event = {
         "patients": [to_event_patient(p) for p in event_patients]
@@ -334,85 +334,26 @@ def test_batch_request_with_mixed_matching_outcomes(postgres_db, docker_network)
     # ACT: Invoke Lambda
     with create_lambda_container_with_env(docker_network) as container:
         response = invoke_lambda(container, event)
-    
-    # ASSERT: Verify response structure    
+ 
+    # Extract new patient ID from response for Patient 3
     data = response["body"]["data"]
     new_patient_id = None
     for patient in data:
-        if patient["nhs_number"] == "9999999999":
-            new_patient_id = patient["patient_ids"][0]
-    data = response["body"]["data"]
-    new_patient_id = None
-    for patient in data:
-        if patient["nhs_number"] == "9999999999":
-            new_patient_id = patient["patient_ids"][0]
-    assert_response(
-        response,
-        expected_status=200,
-        expected_message="Patient Matching completed successfully",
-        expected_counts={"total": 4, "single": 2, "multiple": 1, "zero": 1},
-        expected_data=[
-            to_expected_patient(event_patients[0], [exact_match_id]),
-            to_expected_patient(event_patients[1], [multi_match_id_1, multi_match_id_2, multi_match_id_3]),
-            to_expected_patient(event_patients[2], [new_patient_id]),
-            to_expected_patient(event_patients[3], [])
-        ]
-    )
+        if patient["first_name"] == "Charlie" and patient["last_name"] == "Davis":
+            new_patient_id = patient["patient_ids"][0]        
 
-def test_empty_and_missing_optional_fields_handling(postgres_db, docker_network):
-    """
-    Test that the system correctly handles various combinations of missing/empty optional fields:
-    - Patient 1: Only NHS number populated (single field search)
-    - Patient 2: Only name fields populated
-    - Patient 3: Empty strings mixed with valid values (should treat empty as None)
-    - Patient 4: Only surname populated (single field search)
-    """
-    # ARRANGE: Insert test patients into the database
-    patients = [
-        make_patient("5555555555", "Tom", "Jones", "1970-05-10", "NW1 2DB", "male", True),
-        make_patient("6666666666", "Sarah", "Wilson", "1988-11-25", "B1 1AA", "female", True),
-        make_patient("7777777777", "David", "Taylor", "1992-02-14", "M2 3EF", "male", True)
-    ]
-    with postgres_db.connect() as conn:
-        nhs_match_id, name_match_id, surname_match_id = insert_patients(conn, patients)
-        print(f"Inserted test patients - NHS: {nhs_match_id}, Name: {name_match_id}, Surname: {surname_match_id}")
-    
-    # Prepare Lambda event with various empty/missing field combinations
-    event_patients = [
-        make_patient("5555555555"),
-        make_patient(first_name="Sarah", last_name="Wilson"),
-        make_patient(first_name="Alice", postcode="SW1A 1AA"),
-        make_patient(last_name="Taylor")
-    ]
-    event = {
-        "patients": [to_event_patient(p) for p in event_patients]
-    }
-    
-    # ACT: Invoke Lambda
-    with create_lambda_container_with_env(docker_network) as container:
-        response = invoke_lambda(container, event)
-    
     # ASSERT: Verify response structure    
-    data = response["body"]["data"]
-    new_patient_id = None
-    for patient in data:
-        if patient["first_name"] == "Alice" and patient["postcode"] == "SW1A 1AA":
-            new_patient_id = patient["patient_ids"][0]
-    data = response["body"]["data"]
-    new_patient_id = None
-    for patient in data:
-        if patient["first_name"] == "Alice" and patient["postcode"] == "SW1A 1AA":
-            new_patient_id = patient["patient_ids"][0]
     assert_response(
         response,
         expected_status=200,
         expected_message="Patient Matching completed successfully",
-        expected_counts={"total": 4, "single": 4, "multiple": 0, "zero": 0},
+        expected_counts={"total": 5, "single": 2, "multiple": 1, "zero": 2},
         expected_data=[
-            to_expected_patient(event_patients[0], [nhs_match_id]),
-            to_expected_patient(event_patients[1], [name_match_id]),
+            to_expected_patient(event_patients[0], [patient_ids[0]]),
+            to_expected_patient(event_patients[1], [patient_ids[1], patient_ids[2]]),
             to_expected_patient(event_patients[2], [new_patient_id]),
-            to_expected_patient(event_patients[3], [surname_match_id])
+            to_expected_patient(event_patients[3], []),
+            to_expected_patient(event_patients[4], [])
         ]
     )
 

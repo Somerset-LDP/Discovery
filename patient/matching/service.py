@@ -22,13 +22,15 @@ class MatchingService:
         if df.empty:
             raise ValueError("DataFrame is empty")
         
+        self._validate_schema(df)
+        
         # Work on copy - preserve original
         working_df = df.copy()
         
         # validate and standardise input data
         clean_patient(working_df)
       
-        # exclude rows with no identifying data
+        # exclude rows which do not have sufficient data for searching
         is_searchable = self._find_searchable_rows(working_df)
         logger.debug(f"There are {is_searchable.sum()} searchable rows out of {len(working_df)} total rows.")
        
@@ -59,20 +61,38 @@ class MatchingService:
             # Update the original DataFrame using the mask
             for idx, patient_id in zip(unmatched.index, patient_ids):
                 df.at[idx, 'patient_ids'] = [patient_id]  # Wrap in list for consistency
+
+            print(f"Created unverified patients. The data frame contains the following\n{df}")
         
         # TODO - we **may** need to associate patient ids back to original df i.e. the patient_ids column
 
     def _find_searchable_rows(self, df: pd.DataFrame) -> pd.Series:
-        """Returns boolean mask indicating which rows have at least one non-None field."""
-        conditions = []
-        for col in ['nhs_number', 'dob', 'postcode', 'first_name', 'last_name', 'sex']:
-            if col in df.columns:
-                conditions.append(df[col].notna())
-        
-        if not conditions:
-            return pd.Series([False] * len(df), index=df.index)
-        
-        return pd.concat(conditions, axis=1).any(axis=1)
+        """
+        Returns a boolean Series indicating whether each row is valid based on:
+        cross check trace: nhs_number + dob both present
+        OR
+        regular trace: dob + postcode + first_name + last_name + sex all present
+        """
+
+        cross_check_trace = ["nhs_number", "dob"]
+        trace = ["dob", "postcode", "first_name", "last_name", "sex"]
+
+        is_non_empty = lambda v: not (
+            pd.isna(v) or
+            (isinstance(v, str) and v.strip() == "")
+        )        
+
+        cross_check_trace_valid = df.apply(
+            lambda row: all(is_non_empty(row[col]) for col in cross_check_trace),
+            axis=1
+        )
+
+        trace_valid = df.apply(
+            lambda row: all(is_non_empty(row[col]) for col in trace),
+            axis=1
+        )
+
+        return cross_check_trace_valid | trace_valid
     
     def _local_search(self, df: pd.DataFrame, is_searchable: pd.Series):
         """Performs local MPI search for rows matching the mask and updates df in place."""
@@ -95,7 +115,15 @@ class MatchingService:
 
             # this will use the default matching strategy (SQL exact match)            
             patient_ids = self.local_mpi.find_patients(searchable_df)
-                   
+     
             # Update the original DataFrame row by row
             for idx, patient_id in zip(searchable_df.index, patient_ids):
                 df.at[idx, 'patient_ids'] = patient_id
+
+    def _validate_schema(self, df: pd.DataFrame) -> None:
+        """Ensure the DataFrame contains all mandatory columns."""
+        mandatory_columns = ['nhs_number', 'dob', 'postcode', 'first_name', 'last_name', 'sex']
+
+        missing = [col for col in mandatory_columns if col not in df.columns]
+        if missing:
+            raise ValueError(f"Missing mandatory columns: {missing}")

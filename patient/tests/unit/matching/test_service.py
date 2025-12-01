@@ -28,8 +28,8 @@ def service(mock_repository):
 def test_all_rows_match_in_local_mpi(service, mock_repository):
     """Test when all rows match existing patients in local MPI."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
-        {'nhs_number': '9434765870', 'dob': date(1975, 3, 20), 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
+        {'nhs_number': '9434765870', 'dob': "1975-03-20", 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}
     ])
     
     # Mock repository to return matches for all rows
@@ -49,8 +49,8 @@ def test_all_rows_match_in_local_mpi(service, mock_repository):
 def test_no_rows_match_in_local_mpi(service, mock_repository):
     """Test when no rows match existing patients - all get new unverified patients."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
-        {'nhs_number': '9434765870', 'dob': date(1975, 3, 20), 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
+        {'nhs_number': '9434765870', 'dob': "1975-03-20", 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}
     ])
     
     # Mock repository to return empty lists (no matches)
@@ -72,13 +72,12 @@ def test_no_rows_match_in_local_mpi(service, mock_repository):
     saved_df = mock_repository.save.call_args[0][0]
     assert all(saved_df['verified'] == False)
 
-
 def test_mixed_some_match_some_dont(service, mock_repository):
     """Test mixed scenario: some rows match, others need new unverified patients."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
-        {'nhs_number': '9434765870', 'dob': date(1975, 3, 20), 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'},
-        {'nhs_number': '9434765828', 'dob': date(1990, 7, 10), 'first_name': 'Bob', 'last_name': 'Jones', 'postcode': 'M1 1AE', 'sex': 'male'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
+        {'nhs_number': '9434765870', 'dob': "1975-03-20", 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'},
+        {'nhs_number': '9434765828', 'dob': "1990-07-10", 'first_name': 'Bob', 'last_name': 'Jones', 'postcode': 'M1 1AE', 'sex': 'male'}
     ])
     
     # Mock repository: first row matches, second and third don't
@@ -102,7 +101,7 @@ def test_mixed_some_match_some_dont(service, mock_repository):
 def test_multiple_matches_per_row(service, mock_repository):
     """Test when a row matches multiple patients in local MPI."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'}
     ])
     
     # Mock repository to return multiple matches
@@ -136,37 +135,64 @@ def test_all_rows_have_no_searchable_data(service, mock_repository):
     mock_repository.find_patients.assert_not_called()
     mock_repository.save.assert_not_called()
 
-
 def test_some_rows_have_no_searchable_data(service, mock_repository):
-    """Test mixed scenario: some rows searchable, others not."""
+    """Test mixed scenario: some rows match NHS trace, some match cross-check trace, others not searchable."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},  # Valid
-        {'nhs_number': None, 'dob': None, 'first_name': None, 'last_name': None, 'postcode': None, 'sex': None},  # All None
-        {'nhs_number': '9434765870', 'dob': date(1975, 3, 20), 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}  # Valid
+        # row 0 - 1 unverified patient: NHS trace: valid NHS and dob
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': None, 'last_name': None, 'postcode': None, 'sex': None},
+        # row 1 - 0 unverified patient: NHS number present, dob missing (should be unsearchable)
+        {'nhs_number': '9434765919', 'dob': None, 'first_name': None, 'last_name': None, 'postcode': None, 'sex': None},
+        # row 2 - 1 unverified patient: Cross-check trace: all fields except NHS
+        {'nhs_number': None, 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
+        # row 3 - 1 unverified patient: Both traces valid (all fields present)
+        {'nhs_number': '9434765870', 'dob': "1975-03-20", 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'},
+        # row 4 - 0 unverified patient: Neither trace valid (all fields missing)
+        {'nhs_number': None, 'dob': None, 'first_name': None, 'last_name': None, 'postcode': None, 'sex': None},
+        # row 5 - 1 unverified patient: Invalid NHS but still a valid cross-check 
+        {'nhs_number': '1234567890', 'dob': "1990-01-01", 'first_name': 'Alice', 'last_name': 'Brown', 'postcode': 'M1 1AE', 'sex': 'female'},
+        # row 6 - 1 unverified patient: Valid NHS, valid cross-check (all required for cross-check present)
+        {'nhs_number': '9434765828', 'dob': "1990-07-10", 'first_name': 'Bob', 'last_name': 'Jones', 'postcode': 'M1 1AE', 'sex': 'male'},
+        # row 7 - 1 unverified patient: NHS too short but still a valid cross-check 
+        {'nhs_number': '12345', 'dob': "1985-12-12", 'first_name': 'Bob', 'last_name': 'Smith', 'postcode': 'E2 8AA', 'sex': 'male'},
+        # row 8 - 0 unverified patient: All fields present but invalid formats (should be unsearchable)
+        {'nhs_number': 'invalid', 'dob': 'not-a-date', 'first_name': '', 'last_name': '', 'postcode': 'bad', 'sex': ''},
     ])
     
-    # Mock repository: both searchable rows don't match (empty lists)
-    mock_repository.find_patients.return_value = [[], []]
-    mock_repository.save.return_value = ['new-patient-1', 'new-patient-2']
+    # Only truly searchable rows should be processed
+    mock_repository.find_patients.return_value = [[], [], [], [], [], []]
+    mock_repository.save.return_value = ['new-patient-1', 'new-patient-2', 'new-patient-3', 'new-patient-4', 'new-patient-5', 'new-patient-6']
     
     with patch('matching.service.add_to_batch'):
         result = service.match(df)
     
-    # Searchable rows get new patients, unsearchable row gets empty list
+    # NHS trace (valid NHS and dob)
     assert result.loc[0, 'patient_ids'] == ['new-patient-1']
+    # NHS number present, dob missing (should be unsearchable)
     assert result.loc[1, 'patient_ids'] == []
+    # Cross-check trace
     assert result.loc[2, 'patient_ids'] == ['new-patient-2']
-    
-    # Only searchable rows processed
+    # Both traces valid
+    assert result.loc[3, 'patient_ids'] == ['new-patient-3']
+    # Neither trace valid
+    assert result.loc[4, 'patient_ids'] == []
+    # Invalid NHS but still a valid cross-check
+    assert result.loc[5, 'patient_ids'] == ['new-patient-4']
+    # Valid NHS, valid cross-check
+    assert result.loc[6, 'patient_ids'] == ['new-patient-5']
+    # NHS too short, but still a valid cross-check
+    assert result.loc[7, 'patient_ids'] == ['new-patient-6']
+    # All fields invalid
+    assert result.loc[8, 'patient_ids'] == []
+
+    # Only truly searchable rows processed
     assert mock_repository.find_patients.call_count == 1
     searchable_df = mock_repository.find_patients.call_args[0][0]
-    assert len(searchable_df) == 2  # Only 2 searchable rows
-
+    assert len(searchable_df) == 6  # Only 6 rows are truly searchable
 
 def test_row_becomes_unsearchable_after_cleaning(service, mock_repository):
     """Test row with invalid data becomes unsearchable after validation."""
     df = pd.DataFrame([
-        {'nhs_number': '1234567890', 'dob': date(2050, 1, 1), 'first_name': '', 'last_name': '   ', 'postcode': 'INVALID', 'sex': ''},
+        {'nhs_number': '1234567890', 'dob': "2050-01-01", 'first_name': '', 'last_name': '   ', 'postcode': 'INVALID', 'sex': ''},
     ])
     
     result = service.match(df)
@@ -194,7 +220,7 @@ def test_empty_dataframe_raises_error(service):
 def test_single_row_dataframe(service, mock_repository):
     """Test processing of single row DataFrame."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'}
     ])
     
     mock_repository.find_patients.return_value = [['patient-1']]
@@ -213,8 +239,8 @@ def test_index_preservation(service, mock_repository):
     """Test that original DataFrame indices are preserved."""
     # Create DataFrame with non-default index
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
-        {'nhs_number': '9434765870', 'dob': date(1975, 3, 20), 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
+        {'nhs_number': '9434765870', 'dob': "1975-03-20", 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}
     ], index=[10, 25])
     
     mock_repository.find_patients.return_value = [['patient-1'], ['patient-2']]
@@ -230,7 +256,7 @@ def test_index_preservation(service, mock_repository):
 def test_original_dataframe_not_mutated(service, mock_repository):
     """Test that input DataFrame is not modified."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'john', 'last_name': 'doe', 'postcode': 'sw1a1aa', 'sex': 'male'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'john', 'last_name': 'doe', 'postcode': 'sw1a1aa', 'sex': 'male'}
     ])
     
     # Store original values
@@ -257,9 +283,9 @@ def test_original_dataframe_not_mutated(service, mock_repository):
 def test_patient_ids_column_format_consistency(service, mock_repository):
     """Test that patient_ids column has consistent format (empty list or List[str])."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},  # Will match
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},  # Will match
         {'nhs_number': None, 'dob': None, 'first_name': None, 'last_name': None, 'postcode': None, 'sex': None},  # Unsearchable
-        {'nhs_number': '9434765870', 'dob': date(1975, 3, 20), 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}  # Will not match
+        {'nhs_number': '9434765870', 'dob': "1975-03-20", 'first_name': 'Jane', 'last_name': 'Smith', 'postcode': 'E1 6AN', 'sex': 'female'}  # Will not match
     ])
     
     mock_repository.find_patients.return_value = [['patient-1'], []]
@@ -281,7 +307,7 @@ def test_patient_ids_column_format_consistency(service, mock_repository):
 def test_all_fields_valid_after_cleaning(service, mock_repository):
     """Test row with all valid fields is processed correctly."""
     df = pd.DataFrame([
-        {'nhs_number': '943 476 5919', 'dob': date(1980, 5, 15), 'first_name': 'john', 'last_name': 'doe', 'postcode': 'sw1a1aa', 'sex': 'MALE'}
+        {'nhs_number': '943 476 5919', 'dob': "1980-05-15", 'first_name': 'john', 'last_name': 'doe', 'postcode': 'sw1a1aa', 'sex': 'MALE'}
     ])
     
     mock_repository.find_patients.return_value = [[]]
@@ -298,11 +324,10 @@ def test_all_fields_valid_after_cleaning(service, mock_repository):
     assert result.loc[0, 'sex'] == 'male'
     assert result.loc[0, 'patient_ids'] == ['new-patient-1']
 
-
 def test_all_fields_invalid_after_cleaning(service, mock_repository):
     """Test row where all fields become None after validation."""
     df = pd.DataFrame([
-        {'nhs_number': '1234567890', 'dob': date(2050, 1, 1), 'first_name': '', 'last_name': '', 'postcode': 'INVALID', 'sex': ''}
+        {'nhs_number': '1234567890', 'dob': "2050-01-01", 'first_name': '', 'last_name': '', 'postcode': 'INVALID', 'sex': ''}
     ])
     
     result = service.match(df)
@@ -324,8 +349,8 @@ def test_all_fields_invalid_after_cleaning(service, mock_repository):
 def test_duplicate_rows(service, mock_repository):
     """Test duplicate rows are processed independently with same results."""
     df = pd.DataFrame([
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
-        {'nhs_number': '9434765919', 'dob': date(1980, 5, 15), 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'}
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'},
+        {'nhs_number': '9434765919', 'dob': "1980-05-15", 'first_name': 'John', 'last_name': 'Doe', 'postcode': 'SW1A 1AA', 'sex': 'male'}
     ])
     
     # Mock repository returns same match for both duplicate rows

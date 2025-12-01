@@ -1043,3 +1043,129 @@ def test_sft_feed_encryption_failure_handling(sample_cohort_store):
 
     assert "Failed to process SFT records due to batch encryption service error" in str(exc_info.value)
 
+
+# Batch Encryption with None Values Tests
+
+def test_batch_encrypt_handles_none_values_in_encrypted_result(sample_cohort_store):
+    """Test that None values in encrypted results are filtered from mapping"""
+    from pipeline.conformance_processor import _batch_encrypt_nhs_numbers
+
+    def mock_encrypt_with_nones(field_name, values):
+        # Return None for some values to simulate invalid NHS numbers
+        result = []
+        for v in values:
+            if v == '1234567890':
+                result.append('enc_1')
+            elif v == '2345678901':
+                result.append(None)  # Invalid value
+            elif v == '3456789012':
+                result.append('enc_3')
+            else:
+                result.append(None)
+        return result
+
+    nhs_numbers = ['1234567890', '2345678901', '3456789012']
+    mapping = _batch_encrypt_nhs_numbers(nhs_numbers, mock_encrypt_with_nones, GP_FEED)
+
+    # Mapping should only contain valid encrypted values
+    assert len(mapping) == 2
+    assert '1234567890' in mapping
+    assert '2345678901' not in mapping  # Filtered out
+    assert '3456789012' in mapping
+
+
+def test_batch_encrypt_all_none_values_returns_empty_mapping(sample_cohort_store):
+    """Test that all None encrypted values result in empty mapping"""
+    from pipeline.conformance_processor import _batch_encrypt_nhs_numbers
+
+    def mock_encrypt_all_none(field_name, values):
+        return [None] * len(values)
+
+    nhs_numbers = ['1111111111', '2222222222', '3333333333']
+    mapping = _batch_encrypt_nhs_numbers(nhs_numbers, mock_encrypt_all_none, GP_FEED)
+
+    assert mapping == {}
+
+
+def test_batch_encrypt_raises_error_if_wrong_length(sample_cohort_store):
+    """Test that error is raised if encrypted list length doesn't match input"""
+    from pipeline.conformance_processor import _batch_encrypt_nhs_numbers
+
+    def mock_encrypt_wrong_length(field_name, values):
+        return ['enc_1', 'enc_2']  # Wrong length
+
+    nhs_numbers = ['1234567890', '2345678901', '3456789012']
+
+    with pytest.raises(RuntimeError, match="expected list of 3 values, got 2"):
+        _batch_encrypt_nhs_numbers(nhs_numbers, mock_encrypt_wrong_length, GP_FEED)
+
+
+# Integration Tests - Cohort Filtering
+
+def test_filters_out_records_with_nhs_not_in_cohort():
+    """Test that records with NHS numbers not in cohort are filtered out"""
+    cohort_store = pd.Series(["enc_1", "enc_3"])
+
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890', '0987654321', '1111111111'],
+        'name': ['Patient A', 'Patient B', 'Patient C'],
+    })
+
+    def mock_encrypt(field_name, values):
+        mapping = {
+            '1234567890': 'enc_1',  # In cohort
+            '0987654321': 'enc_2',  # NOT in cohort
+            '1111111111': 'enc_3',  # In cohort
+        }
+        return [mapping.get(v, None) for v in values]
+
+    result = run(cohort_store, records, mock_encrypt, GP_FEED)
+
+    # Should only contain 2 records (enc_1 and enc_3)
+    assert len(result) == 2
+    assert list(result['nhs_number']) == ['1234567890', '1111111111']
+
+
+def test_handles_duplicate_nhs_numbers_in_records():
+    """Test that duplicate NHS numbers in records are handled correctly"""
+    cohort_store = pd.Series(["enc_1"])
+
+    # Same NHS number appears twice
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890', '1234567890', '0987654321'],
+        'name': ['Name 1', 'Name 1', 'Name 3'],
+    })
+
+    def mock_encrypt(field_name, values):
+        mapping = {
+            '1234567890': 'enc_1',  # In cohort
+            '0987654321': 'enc_2',  # NOT in cohort
+        }
+        return [mapping.get(v, None) for v in values]
+
+    result = run(cohort_store, records, mock_encrypt, GP_FEED)
+
+    # Should contain both records with NHS 1234567890
+    assert len(result) == 2
+    assert list(result['nhs_number']) == ['1234567890', '1234567890']
+    assert list(result['name']) == ['Name 1', 'Name 3']
+
+
+def test_empty_cohort_filters_all_records():
+    """Test that empty cohort results in all records being filtered out"""
+    cohort_store = pd.Series([])  # Empty cohort
+
+    records = pd.DataFrame({
+        'nhs_number': ['1234567890', '0987654321'],
+        'name': ['Patient A', 'Patient B'],
+    })
+
+    def mock_encrypt(field_name, values):
+        return ['enc_1', 'enc_2']
+
+    result = run(cohort_store, records, mock_encrypt, GP_FEED)
+
+    # All records should be filtered out
+    assert len(result) == 0
+
+

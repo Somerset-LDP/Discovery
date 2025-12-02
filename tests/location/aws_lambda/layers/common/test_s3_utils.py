@@ -1,6 +1,3 @@
-import os
-import tempfile
-import zipfile
 from io import BytesIO
 from unittest.mock import patch
 
@@ -8,8 +5,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 from location.aws_lambda.layers.common.common_utils import DataIngestionException, CHUNK_SIZE_BYTES
-from location.aws_lambda.layers.common.s3_utils import create_s3_key, upload_to_s3, upload_to_s3_multipart, \
-    upload_from_zip_to_s3
+from location.aws_lambda.layers.common.s3_utils import create_s3_key, upload_to_s3, upload_to_s3_multipart
 
 VALID_TIMESTAMP = "2025-12-01T10:00:00.123"
 VALID_DATA_SOURCE = "onspd"
@@ -173,7 +169,7 @@ def test_upload_to_s3_handles_various_content_sizes(mock_s3_client, content_size
 def test_upload_to_s3_multipart_uploads_successfully(mock_s3_client):
     content = BytesIO(b"x" * (CHUNK_SIZE_BYTES + 1000))
     s3_key = "test/large_file.csv"
-
+    
     mock_s3_client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
     mock_s3_client.upload_part.return_value = {'ETag': 'test-etag'}
 
@@ -188,7 +184,7 @@ def test_upload_to_s3_multipart_uploads_successfully(mock_s3_client):
 def test_upload_to_s3_multipart_uploads_single_part(mock_s3_client):
     content = BytesIO(b"small content")
     s3_key = "test/file.csv"
-
+    
     mock_s3_client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
     mock_s3_client.upload_part.return_value = {'ETag': 'test-etag'}
 
@@ -220,7 +216,7 @@ def test_upload_to_s3_multipart_raises_exception_for_invalid_key(mock_s3_client,
 @patch('location.aws_lambda.layers.common.s3_utils.s3_client')
 def test_upload_to_s3_multipart_raises_exception_for_empty_stream(mock_s3_client):
     content = BytesIO(b"")
-
+    
     mock_s3_client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
 
     with pytest.raises(DataIngestionException) as exc_info:
@@ -233,10 +229,10 @@ def test_upload_to_s3_multipart_raises_exception_for_empty_stream(mock_s3_client
 @patch('location.aws_lambda.layers.common.s3_utils.s3_client')
 def test_upload_to_s3_multipart_aborts_on_upload_error(mock_s3_client):
     content = BytesIO(b"test content")
-
+    
     mock_s3_client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
     mock_s3_client.upload_part.side_effect = ClientError(
-        {'Error': {'Code': 'InternalError', 'Message': 'Internal error'}},
+        {'Error': {'Code': 'InternalError', 'Message': 'Internal error'}}, 
         'UploadPart'
     )
 
@@ -246,84 +242,3 @@ def test_upload_to_s3_multipart_aborts_on_upload_error(mock_s3_client):
     mock_s3_client.abort_multipart_upload.assert_called_once()
     assert "S3 multipart upload failed" in str(exc_info.value.message)
 
-
-@patch('location.aws_lambda.layers.common.s3_utils.upload_to_s3_multipart')
-def test_upload_from_zip_to_s3_uploads_successfully(mock_upload):
-    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.zip') as temp_zip:
-        temp_zip_path = temp_zip.name
-        with zipfile.ZipFile(temp_zip, 'w') as zip_file:
-            zip_file.writestr("folder/test.csv", b"test csv content")
-
-    try:
-        upload_from_zip_to_s3(temp_zip_path, "folder/test.csv", VALID_BUCKET, "test/key.csv")
-
-        mock_upload.assert_called_once()
-        assert mock_upload.call_args[0][0] == VALID_BUCKET
-        assert mock_upload.call_args[0][1] == "test/key.csv"
-    finally:
-        if os.path.exists(temp_zip_path):
-            os.unlink(temp_zip_path)
-
-
-@pytest.mark.parametrize("invalid_param,value,error_msg", [
-    ("zip_file_path", None, "ZIP file path is invalid"),
-    ("zip_file_path", "/nonexistent/file.zip", "ZIP file path is invalid"),
-    ("target_file_path", None, "target_file_path is empty or None"),
-    ("target_file_path", "", "target_file_path is empty or None"),
-    ("s3_bucket", None, "S3 bucket name is null or empty"),
-    ("s3_bucket", "", "S3 bucket name is null or empty"),
-])
-def test_upload_from_zip_to_s3_raises_exception_for_invalid_params(invalid_param, value, error_msg):
-    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.zip') as temp_zip:
-        temp_zip_path = temp_zip.name
-        with zipfile.ZipFile(temp_zip, 'w') as zip_file:
-            zip_file.writestr("test.csv", b"test content")
-
-    try:
-        params = {
-            "zip_file_path": temp_zip_path,
-            "target_file_path": "test.csv",
-            "s3_bucket": VALID_BUCKET,
-            "s3_key": "test/key.csv"
-        }
-        params[invalid_param] = value
-
-        with pytest.raises(DataIngestionException) as exc_info:
-            upload_from_zip_to_s3(**params)
-
-        assert error_msg in str(exc_info.value.message)
-    finally:
-        if os.path.exists(temp_zip_path):
-            os.unlink(temp_zip_path)
-
-
-def test_upload_from_zip_to_s3_raises_exception_for_missing_file_in_zip():
-    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.zip') as temp_zip:
-        temp_zip_path = temp_zip.name
-        with zipfile.ZipFile(temp_zip, 'w') as zip_file:
-            zip_file.writestr("other.csv", b"other content")
-
-    try:
-        with pytest.raises(DataIngestionException) as exc_info:
-            upload_from_zip_to_s3(temp_zip_path, "missing.csv", VALID_BUCKET, "test/key.csv")
-
-        assert "not found in ZIP archive" in str(exc_info.value.message)
-    finally:
-        if os.path.exists(temp_zip_path):
-            os.unlink(temp_zip_path)
-
-
-def test_upload_from_zip_to_s3_raises_exception_for_empty_file():
-    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.zip') as temp_zip:
-        temp_zip_path = temp_zip.name
-        with zipfile.ZipFile(temp_zip, 'w') as zip_file:
-            zip_file.writestr("empty.csv", b"")
-
-    try:
-        with pytest.raises(DataIngestionException) as exc_info:
-            upload_from_zip_to_s3(temp_zip_path, "empty.csv", VALID_BUCKET, "test/key.csv")
-
-        assert "exists but is empty" in str(exc_info.value.message)
-    finally:
-        if os.path.exists(temp_zip_path):
-            os.unlink(temp_zip_path)

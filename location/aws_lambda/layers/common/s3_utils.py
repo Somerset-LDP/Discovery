@@ -1,8 +1,7 @@
 import logging
 import os
-import zipfile
 from io import BytesIO
-from typing import Any, BinaryIO, Union
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -78,7 +77,7 @@ def upload_to_s3(s3_bucket: str, s3_key: str, content: Any) -> None:
         )
 
 
-def upload_to_s3_multipart(s3_bucket: str, s3_key: str, file_stream: Union[BytesIO, BinaryIO]) -> None:
+def upload_to_s3_multipart(s3_bucket: str, s3_key: str, file_stream: BytesIO) -> None:
     if not s3_bucket or not s3_bucket.strip():
         raise DataIngestionException("S3 bucket name is null or empty")
     if not s3_key or not s3_key.strip():
@@ -89,8 +88,7 @@ def upload_to_s3_multipart(s3_bucket: str, s3_key: str, file_stream: Union[Bytes
     logger.debug(f"Starting multipart upload to s3://{s3_bucket}/{s3_key}")
 
     try:
-        if hasattr(file_stream, 'seek'):
-            file_stream.seek(0)
+        file_stream.seek(0)
 
         multipart_upload = s3_client.create_multipart_upload(
             Bucket=s3_bucket,
@@ -167,49 +165,3 @@ def upload_to_s3_multipart(s3_bucket: str, s3_key: str, file_stream: Union[Bytes
         raise DataIngestionException(
             f"Unexpected error during multipart upload to s3://{s3_bucket}/{s3_key}: {str(e)}"
         )
-
-
-def upload_from_zip_to_s3(zip_file_path: str, target_file_path: str, s3_bucket: str, s3_key: str) -> None:
-    """
-    Extract a single file from ZIP archive and upload directly to S3.
-    Uses streaming to minimise memory usage.
-    """
-    if not zip_file_path or not os.path.exists(zip_file_path):
-        raise DataIngestionException("ZIP file path is invalid or file does not exist")
-    if not target_file_path:
-        raise DataIngestionException("target_file_path is empty or None")
-    if not s3_bucket or not s3_bucket.strip():
-        raise DataIngestionException("S3 bucket name is null or empty")
-    if not s3_key or not s3_key.strip():
-        raise DataIngestionException("S3 key is null or empty")
-
-    logger.debug(f"Extracting {target_file_path} from {zip_file_path} and uploading to s3://{s3_bucket}/{s3_key}")
-
-    try:
-        with zipfile.ZipFile(zip_file_path, "r") as zip_file:
-            zip_filelist = zip_file.namelist()
-            logger.debug(f"ZIP contains {len(zip_filelist)} files")
-
-            if target_file_path not in zip_filelist:
-                logger.error(f"File '{target_file_path}' not found. Available files: {zip_filelist}")
-                raise DataIngestionException(f"File '{target_file_path}' not found in ZIP archive")
-
-            file_info = zip_file.getinfo(target_file_path)
-            if file_info.file_size == 0:
-                raise DataIngestionException(f"File '{target_file_path}' exists but is empty")
-
-            logger.debug(f"Extracting {file_info.file_size / (1024 * 1024):.2f} MB from {target_file_path}")
-
-            # Stream directly from ZIP to S3 without intermediate BytesIO buffer
-            with zip_file.open(target_file_path) as file_stream:
-                logger.debug(f"Uploading to S3 using multipart upload: s3://{s3_bucket}/{s3_key}")
-                upload_to_s3_multipart(s3_bucket, s3_key, file_stream)
-
-    except zipfile.BadZipFile as e:
-        raise DataIngestionException(f"Invalid ZIP file: {str(e)}")
-    except zipfile.LargeZipFile as e:
-        raise DataIngestionException(f"ZIP file too large: {str(e)}")
-    except DataIngestionException:
-        raise
-    except Exception as e:
-        raise DataIngestionException(f"Unexpected error extracting from ZIP and uploading to S3: {str(e)}")

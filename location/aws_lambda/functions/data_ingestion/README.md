@@ -28,16 +28,6 @@ IMD_TARGET_PREFIX="File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx"
 }
 ```
 
-**Timestamp Format:**
-The `ingestion-timestamp` field accepts various ISO 8601 formats:
-- Date only: `2025-12-01`
-- Date and time: `2025-12-01T14:30:45`
-- Date, time and fractional seconds: `2025-12-01T14:30:45.123456`
-- With trailing 'Z': `2025-12-01T14:30:45.123456Z`
-- Space separator: `2025-12-01 14:30:45`
-
-All formats are parsed to extract year, month, and day for the S3 path.
-
 ### S3 Output Path Format
 
 ```
@@ -63,9 +53,8 @@ s3://ldp-zone-a-landing/landing/reference/imd_2019/2025/12/01/File_1_IoD2025_Ind
 
 ## Notes
 
-- **ONSPD**: Downloads ZIP file to temporary storage and extracts specific CSV file from path defined in `ONSPD_TARGET_PREFIX`
-- **IMD**: Downloads XLSX file directly to memory (small file, no extraction needed)
-- Date components (YYYY/MM/DD) are extracted from `ingestion-timestamp` (accepts various ISO 8601 formats)
+- **ONSPD**: Downloads ZIP file and extracts specific CSV file from path defined in `ONSPD_TARGET_PREFIX`
+- **IMD**: Downloads XLSX file directly (no extraction needed)
+- Date components (YYYY/MM/DD) are extracted from `ingestion-timestamp`
 - Filename in S3 key is extracted from the last component of `TARGET_PREFIX`
-- Large files use temporary disk storage to minimise memory usage
 

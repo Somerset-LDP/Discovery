@@ -1,7 +1,6 @@
 import logging
 import os
-
-from aws_lambda_context import LambdaContext
+from typing import Any
 
 from location.aws_lambda.functions.data_ingestion.imd_data_ingestion import ingest_imd_data
 from location.aws_lambda.functions.data_ingestion.onspd_data_ingestion import ingest_onspd_data
@@ -12,7 +11,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("log_level", "DEBUG"))
 
 
-def handler(event: dict, context: LambdaContext) -> None:
+def handler(event: dict, context: Any) -> None:
     try:
         logger.debug(f"Received event: {event}")
 

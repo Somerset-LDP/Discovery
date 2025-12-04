@@ -1,3 +1,8 @@
 boto3>=1.35.0
 requests>=2.32.0
 aws-lambda-context>=1.1.0
+
+# Testing dependencies
+pytest>=8.0.0
+pytest-mock>=3.14.0
+

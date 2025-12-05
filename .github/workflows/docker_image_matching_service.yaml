@@ -1,0 +1,52 @@
+name: Build and deploy matching service Lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      redeploy:
+        description: 'Redeploy Lambda function'
+        required: true
+        default: 'false'
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: 'feature/SICSDPD-145'
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
+          aws-region: eu-west-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./patient/matching/aws/lambda/
+          file: ./patient/matching/aws/lambda/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:matching-service-latest
+            647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:matching-service-${{ github.sha }}
+
+      - name: Update Lambda function with new Docker image
+        if: github.event.inputs.redeploy == 'true'
+        run: |
+          LAMBDA_NAME=$(echo "matching-service" | tr '-' '_')
+          IMAGE_URI="647582858282.dkr.ecr.eu-west-2.amazonaws.com/somerset-647582858282-dev-account-ecr:matching-service-latest"
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_NAME" \
+            --image-uri "$IMAGE_URI"

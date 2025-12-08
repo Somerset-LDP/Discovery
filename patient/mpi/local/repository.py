@@ -37,6 +37,21 @@ class PatientRepository:
             matcher = self.default_matcher
 
         return matcher.find_matches(queries)
+    
+    def find_unverified_patients(self) -> pd.DataFrame:
+        unverified_patients = []
+        
+        with self.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT patient_id, nhs_number, family_name, given_name, sex, date_of_birth, postcode
+                FROM patient
+                WHERE verified = FALSE
+            """))
+
+            columns = ["patient_id", "nhs_number", "family_name", "given_name", "sex", "date_of_birth", "postcode"]
+            unverified_patients = pd.DataFrame(result.fetchall(), columns=columns)
+        
+        return unverified_patients
 
     def _insert_patients(self, patients: pd.DataFrame, conn: Connection) -> List[str]:
         """Insert a batch of patients and return their IDs."""

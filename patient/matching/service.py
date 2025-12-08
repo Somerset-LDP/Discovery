@@ -4,7 +4,6 @@ Responsible for orchestrating matching logic and interacting with MPI.
 """
 
 from mpi.local.repository import PatientRepository
-from mpi.pds.asynchronous.request.client import add_to_batch
 from .patient import clean_patient, mark_unverified
 import pandas as pd
 import logging
@@ -17,7 +16,14 @@ class MatchingService:
         self.local_mpi = local_mpi
     
     def match(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Finds potential matches for patients in the given DataFrame. The original data frame is modified to add a 'patient_ids' column that contains lists of matching patient IDs or None if no match is found."""
+        """Finds potential matches for patients in the given DataFrame. 
+        The original data frame is modified to add a 'patient_ids' column that contains lists of 
+        matching patient IDs or None if no match is found.
+        Args:
+            df (pd.DataFrame): DataFrame containing patient data to be matched.
+        Returns:
+            pd.DataFrame: The modified DataFrame with an additional 'patient_ids' column.
+        """
                 
         if df.empty:
             raise ValueError("DataFrame is empty")
@@ -50,13 +56,11 @@ class MatchingService:
         if is_unmatched.any():
             unmatched = df[is_unmatched]
             
-            # add to PDS async batch request
-            batch_id = add_to_batch(unmatched)
 
             # create new unverified Patient in local MPI
             mark_unverified(unmatched)
-            patient_ids = self.local_mpi.save(unmatched)
             # TODO - we must pseudonymise patient data before storing it
+            patient_ids = self.local_mpi.save(unmatched)
             
             # Update the original DataFrame using the mask
             for idx, patient_id in zip(unmatched.index, patient_ids):

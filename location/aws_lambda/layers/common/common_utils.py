@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
+
 DOWNLOAD_TIMEOUT_SECONDS = 60
 CHUNK_SIZE_BYTES = 32 * 1024 * 1024  # 32 MB
 

@@ -12,7 +12,7 @@ def service():
     return PdsAsyncRequestService(trace_status, mpi)
 
 def test_no_unverified_patients(service):
-    service.mpi.find_unverified_patients.return_value = pd.DataFrame()
+    service.mpi.find_unverified_patients.return_value = pd.DataFrame(columns=["patient_id", "nhs_number", "date_of_birth", "postcode", "family_name", "given_name", "sex"])
     service.trace_status.find_untraced_patients.return_value = []
     result = service.submit()
     assert result["patient_ids"] == []
@@ -61,6 +61,7 @@ def test_duplicate_patient_ids(service):
     assert result["submission_time"] is not None
 
 def test_missing_required_patient_fields(service):
+    # 1. Missing 'sex', 'date_of_birth', 'postcode' (should be excluded)
     df = pd.DataFrame({
         "patient_id": [1],
         "nhs_number": ["a"],
@@ -71,8 +72,72 @@ def test_missing_required_patient_fields(service):
     service.mpi.find_unverified_patients.return_value = df
     service.trace_status.find_untraced_patients.return_value = [1]
     result = service.submit()
-    assert result["patient_ids"] == [1]
+    assert result["patient_ids"] == []
+    assert result["submission_time"] is None
+
+    # 2. All fallback fields present, but missing nhs_number (should be included)
+    df = pd.DataFrame({
+        "patient_id": [2],
+        "nhs_number": [None],
+        "family_name": ["Brown"],
+        "given_name": ["Alice"],
+        "sex": ["F"],
+        "date_of_birth": ["1985-05-05"],
+        "postcode": ["ZZ99 1ZZ"]
+    })
+    service.mpi.find_unverified_patients.return_value = df
+    service.trace_status.find_untraced_patients.return_value = [2]
+    result = service.submit()
+    assert result["patient_ids"] == [2]
     assert result["submission_time"] is not None
+
+    # 3. All nhs_trace fields present (should be included)
+    df = pd.DataFrame({
+        "patient_id": [3],
+        "nhs_number": ["1234567890"],
+        "family_name": ["White"],
+        "given_name": ["Bob"],
+        "sex": ["M"],
+        "date_of_birth": ["1970-01-01"],
+        "postcode": ["AA1 1AA"]
+    })
+    service.mpi.find_unverified_patients.return_value = df
+    service.trace_status.find_untraced_patients.return_value = [3]
+    result = service.submit()
+    assert result["patient_ids"] == [3]
+    assert result["submission_time"] is not None
+
+    # 4. Missing patient_id (should be excluded)
+    df = pd.DataFrame({
+        "patient_id": [None],
+        "nhs_number": ["9999999999"],
+        "family_name": ["Green"],
+        "given_name": ["Charlie"],
+        "sex": ["M"],
+        "date_of_birth": ["1999-09-09"],
+        "postcode": ["BB2 2BB"]
+    })
+    service.mpi.find_unverified_patients.return_value = df
+    service.trace_status.find_untraced_patients.return_value = [None]
+    result = service.submit()
+    assert result["patient_ids"] == []
+    assert result["submission_time"] is None
+
+    # 5. Missing both nhs_number and one fallback field (should be excluded)
+    df = pd.DataFrame({
+        "patient_id": [4],
+        "nhs_number": [None],
+        "family_name": ["Black"],
+        "given_name": ["Dana"],
+        "sex": ["F"],
+        "date_of_birth": ["2001-12-12"],
+        # missing postcode
+    })
+    service.mpi.find_unverified_patients.return_value = df
+    service.trace_status.find_untraced_patients.return_value = [4]
+    result = service.submit()
+    assert result["patient_ids"] == []
+    assert result["submission_time"] is None
 
 def test_submission_time_accuracy(service):
     df = pd.DataFrame({

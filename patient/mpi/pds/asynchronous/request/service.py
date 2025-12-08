@@ -33,8 +33,11 @@ class PdsAsyncRequestService:
         # Retain full patient records for unverified and untraced patients
         unverified_untraced_patients = self._find_unique_untraced_patients(unverified_patients, untraced_patients)
 
-        if not unverified_untraced_patients.empty:
-            mesh_request = self._create_mesh_request(unverified_untraced_patients)     
+        # Filter for valid mesh rows
+        valid_unverified_untraced_patients = self._find_valid_mesh_rows(unverified_untraced_patients)
+
+        if not valid_unverified_untraced_patients.empty:        
+            mesh_request = self._create_mesh_request(valid_unverified_untraced_patients)     
     
             # submit the batch to MESH
             submission_time = datetime.now(timezone.utc)
@@ -66,6 +69,17 @@ class PdsAsyncRequestService:
 
         return unverified_untraced_patients
    
+    def _find_valid_mesh_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        nhs_trace = ["patient_id", "nhs_number", "date_of_birth"]
+        fallback_trace = ["patient_id", "family_name", "given_name", "sex", "postcode", "date_of_birth"]
+
+        def is_non_empty(val):
+            return not (pd.isna(val) or (isinstance(val, str) and val.strip() == ""))
+
+        nhs_valid = df.apply(lambda row: all(is_non_empty(row.get(col)) for col in nhs_trace), axis=1)
+        fallback_valid = df.apply(lambda row: all(is_non_empty(row.get(col)) for col in fallback_trace), axis=1)
+
+        return df[nhs_valid | fallback_valid]
 
     def _create_mesh_request(self, patients: pd.DataFrame):
         """Creates a MESH batch request from the given patients DataFrame."""

@@ -1,8 +1,6 @@
-from testcontainers.core.container import DockerContainer
-from testcontainers.core.wait_strategies import HttpWaitStrategy
-import requests
-from contextlib import contextmanager
 from sqlalchemy import text
+from fixtures.aws import create_lambda_container_with_env, invoke_lambda
+from fixtures.patients import make_patient, insert_patients
 import logging
 
 # Configure logging to output to console
@@ -10,72 +8,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
-@contextmanager
-def create_lambda_container_with_env(docker_network, env_vars=None):
-    """
-    Helper function to create a Lambda container with environment variables.
-    
-    Args:
-        postgres_db: PostgreSQL database engine
-        docker_network: Docker network for container communication
-        
-    Yields:
-        running_container: Ready-to-use Lambda container
-    """
-    container = DockerContainer("patient-matching:latest")
-    container.with_exposed_ports(8080)
-
-    # Add to the same network as PostgreSQL
-    container.with_network(docker_network)
-
-    # Default environment variables
-    defaults = {
-        "MPI_DB_USERNAME": "mpi_writer",
-        "MPI_DB_PASSWORD": "DefaultPassword123!",
-        "MPI_DB_HOST": "db",
-        "MPI_DB_NAME": "ldp",
-        "MPI_DB_PORT": "5432",
-        "MPI_SCHEMA_NAME": "mpi"
-    }
-
-    # Use provided env_vars or defaults
-    env = defaults.copy()
-    if env_vars:
-        env.update(env_vars)
-
-    for key, value in env.items():
-        container.with_env(key, value)    
-
-    container.waiting_for(HttpWaitStrategy(8080, "/2015-03-31/functions/function/invocations").for_status_code_matching(lambda status_code: 200 <= status_code < 600))
-
-    with container as running_container:        
-        yield running_container
-
-def invoke_lambda(container, event, timeout: int = 30):
-    """Invoke Lambda function in container"""
-    port = container.get_exposed_port(8080)
-      
-    url = f"http://localhost:{port}/2015-03-31/functions/function/invocations"
-    
-    response = requests.post(url, json=event, timeout=timeout)
-    return response.json()
-
-def make_patient(
-    nhs_number=None, first_name=None, last_name=None, dob=None,
-    postcode=None, sex=None, verified=None
-):
-    patient = {
-        "nhs_number": nhs_number,
-        "first_name": first_name,
-        "last_name": last_name,
-        "dob": dob,
-        "postcode": postcode,
-        "sex": sex,
-    }
-    if verified is not None:
-        patient["verified"] = verified
-    return patient
 
 def to_event_patient(patient):
     # Remove DB-only fields
@@ -87,24 +19,6 @@ def to_expected_patient(patient, patient_ids):
     expected = to_event_patient(patient)
     expected["patient_ids"] = patient_ids
     return expected
-
-def insert_patients(conn, patients):
-    """Insert a list of patient dicts into the database and return their IDs."""
-    ids = []
-    for p in patients:
-        result = conn.execute(text("""
-            INSERT INTO patient (
-                nhs_number, given_name, family_name, date_of_birth, 
-                postcode, sex, verified, created_at, updated_at
-            ) VALUES (
-                :nhs_number, :first_name, :last_name, :dob,
-                :postcode, :sex, :verified, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-            RETURNING patient_id
-        """), p)
-        ids.append(result.fetchone()[0])
-    conn.commit()
-    return ids
 
 def assert_response(response, expected_status=200, expected_message=None, expected_counts=None, expected_data=None):
     """
@@ -168,7 +82,6 @@ def test_successful_single_patient_exact_match_via_database(postgres_db, docker_
         expected_data=[to_expected_patient(patient, [existing_patient_id])]
     )
 
-# this test no longer works as we have a min set of search fields. We'd need them to have the same FN etc
 def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docker_network):
     """
     Test that a partial query (e.g., only surname and postcode) executes a SQL query 
@@ -185,7 +98,7 @@ def test_multiple_patient_match_returns_all_ids_from_database(postgres_db, docke
         patient_id_1, patient_id_2, patient_id_3 = patient_ids
         print(f"Inserted 3 test patients with IDs: {patient_id_1}, {patient_id_2}, {patient_id_3}")
 
-    # Prepare Lambda event with partial data (only last name and postcode have values)
+    # Prepare Lambda event with query that matches multiple patients
     event_patient = make_patient(first_name="John", last_name="Smith", dob="1980-01-15", postcode="SW1A 1AA", sex="male")
     event = {
         "patients": [to_event_patient(event_patient)]
@@ -228,8 +141,9 @@ def test_no_match_creates_new_unverified_patient(postgres_db, docker_network):
     }
     
     # ACT: Invoke Lambda
-    with create_lambda_container_with_env(docker_network) as container:
+    with create_lambda_container_with_env(docker_network=docker_network, env_vars={"LOG_LEVEL": "DEBUG"}) as container:
         response = invoke_lambda(container, event)
+        #print(container.get_logs())
     
     # ASSERT: Use helper for response assertions
     new_patient = response["body"]["data"][0]
@@ -244,6 +158,9 @@ def test_no_match_creates_new_unverified_patient(postgres_db, docker_network):
     
     # VERIFY: Check the database to confirm the patient was inserted as unverified
     with postgres_db.connect() as conn:
+        result = conn.execute(text("SELECT COUNT(*) FROM patient")).scalar_one()
+        print(f"Total patients in database after insertion: {result}")
+
         result = conn.execute(text("""
             SELECT patient_id, nhs_number, given_name, family_name, 
                     date_of_birth, postcode, sex, verified

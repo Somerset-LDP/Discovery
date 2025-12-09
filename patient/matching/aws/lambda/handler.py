@@ -78,7 +78,7 @@ def lambda_handler(event, context):
 
         df = _to_dataframe(event)
 
-        logger.info(f"Processing {len(df)} patient records")
+        logger.info(f"Processing {len(df)} input patient records")
 
         mpi_db_url = _get_mpi_db_url()
         if mpi_db_url:

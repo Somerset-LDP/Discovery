@@ -37,7 +37,7 @@ def postgres_init_dir(resource_package: str = "data.init") -> Path:
 
 @pytest.fixture(scope="session")
 def postgres_db(docker_network: Network) -> Generator[Engine, None, None]:
-    """Set up PostgreSQL container with LDP and HAPI databases."""
+    """Set up PostgreSQL container with LDP database."""
     init_dir = postgres_init_dir("data.init")
 
     try:
@@ -75,12 +75,15 @@ def postgres_db(docker_network: Network) -> Generator[Engine, None, None]:
             try:
                 with ldp_admin_engine.connect() as ldp_conn:
                     # Apply migrations to LDP database
-                    apply_migrations(ldp_conn, "mpi.local.data.migrations")
+                    apply_migrations(ldp_conn, "mpi.local.data.migrations") # patient table
+                    apply_migrations(ldp_conn, "mpi.pds.asynchronous.data.migrations") # trace_status table
+
             finally:
                 ldp_admin_engine.dispose()            
 
             # Connect to LDP database for tests
             ldp_engine = create_engine(ldp_url)
+            #print(f"Postgres container logs {postgres.get_logs()}")
 
             try:
                 yield ldp_engine
@@ -123,4 +126,13 @@ def clean_patient_table(postgres_db):
     # Clean up after the test
     with postgres_db.connect() as conn:
         conn.execute(text("TRUNCATE TABLE patient RESTART IDENTITY CASCADE"))
-        conn.commit()        
+        conn.commit()    
+
+@pytest.fixture(autouse=True)
+def clean_trace_status_table(postgres_db):
+    """Clean the trace_status table before each test."""
+    yield  # Run the test first
+    # Clean up after the test
+    with postgres_db.connect() as conn:
+        conn.execute(text("TRUNCATE TABLE trace_status RESTART IDENTITY CASCADE"))
+        conn.commit()                  

@@ -38,14 +38,14 @@ class MatchingService:
       
         # exclude rows which do not have sufficient data for searching
         is_searchable = self._find_searchable_rows(working_df)
-        logger.debug(f"There are {is_searchable.sum()} searchable rows out of {len(working_df)} total rows.")
+        logger.debug(f"There are {is_searchable.sum()} rows out of {len(working_df)} total rows that can be used as input to the search.")
        
         self._local_search(working_df, is_searchable)
 
         # Only create unverified patients for searchable unmatched rows
         is_unmatched = is_searchable & working_df['patient_ids'].apply(lambda x: len(x) == 0)
-        logger.debug(f"There are {is_unmatched.sum()} unmatched searchable rows out of {len(working_df)} total rows.")
 
+        logger.debug(f"Creating unverified patients for {is_unmatched.sum()} unmatched rows.")
         self._create_unverified_patients(working_df, is_unmatched)
 
         return working_df
@@ -56,7 +56,6 @@ class MatchingService:
         if is_unmatched.any():
             unmatched = df[is_unmatched]
             
-
             # create new unverified Patient in local MPI
             mark_unverified(unmatched)
             # TODO - we must pseudonymise patient data before storing it
@@ -66,7 +65,9 @@ class MatchingService:
             for idx, patient_id in zip(unmatched.index, patient_ids):
                 df.at[idx, 'patient_ids'] = [patient_id]  # Wrap in list for consistency
 
-            print(f"Created unverified patients. The data frame contains the following\n{df}")
+            logger.debug(f"Created {len(patient_ids)} unverified patients.")
+            if len(patient_ids) < 100:
+                logger.debug(f"Unverified patient IDs created: {patient_ids}")
         
         # TODO - we **may** need to associate patient ids back to original df i.e. the patient_ids column
 

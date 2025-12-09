@@ -57,8 +57,7 @@ def test_no_rows_match_in_local_mpi(service, mock_repository):
     mock_repository.find_patients.return_value = [[], []]
     mock_repository.save.return_value = ['new-patient-1', 'new-patient-2']
     
-    with patch('matching.service.add_to_batch') as mock_add_to_batch:
-        result = service.match(df)
+    result = service.match(df)
     
     # All rows should have patient_ids from newly created patients
     assert result.loc[0, 'patient_ids'] == ['new-patient-1']
@@ -84,8 +83,7 @@ def test_mixed_some_match_some_dont(service, mock_repository):
     mock_repository.find_patients.return_value = [['existing-patient-1'], [], []]
     mock_repository.save.return_value = ['new-patient-1', 'new-patient-2']
     
-    with patch('matching.service.add_to_batch'):
-        result = service.match(df)
+    result = service.match(df)
     
     # First row has existing patient, others have new patients
     assert result.loc[0, 'patient_ids'] == ['existing-patient-1']
@@ -162,8 +160,7 @@ def test_some_rows_have_no_searchable_data(service, mock_repository):
     mock_repository.find_patients.return_value = [[], [], [], [], [], []]
     mock_repository.save.return_value = ['new-patient-1', 'new-patient-2', 'new-patient-3', 'new-patient-4', 'new-patient-5', 'new-patient-6']
     
-    with patch('matching.service.add_to_batch'):
-        result = service.match(df)
+    result = service.match(df)
     
     # NHS trace (valid NHS and dob)
     assert result.loc[0, 'patient_ids'] == ['new-patient-1']
@@ -291,8 +288,7 @@ def test_patient_ids_column_format_consistency(service, mock_repository):
     mock_repository.find_patients.return_value = [['patient-1'], []]
     mock_repository.save.return_value = ['new-patient-1']
     
-    with patch('matching.service.add_to_batch'):
-        result = service.match(df)
+    result = service.match(df)
     
     # Check format consistency - all should be lists now
     assert isinstance(result.loc[0, 'patient_ids'], list)  # Matched - list
@@ -313,8 +309,7 @@ def test_all_fields_valid_after_cleaning(service, mock_repository):
     mock_repository.find_patients.return_value = [[]]
     mock_repository.save.return_value = ['new-patient-1']
     
-    with patch('matching.service.add_to_batch'):
-        result = service.match(df)
+    result = service.match(df)
     
     # Check standardization happened
     assert result.loc[0, 'nhs_number'] == '9434765919'

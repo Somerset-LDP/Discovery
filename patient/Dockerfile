@@ -26,7 +26,7 @@ COPY mpi/matching.py ./mpi/
 COPY mpi/local/repository.py ./mpi/local/
 COPY mpi/local/matching.py ./mpi/local/
 COPY mpi/pds/asynchronous/request/__init__.py ./mpi/pds/asynchronous/request/
-COPY mpi/pds/asynchronous/request/server.py ./mpi/pds/asynchronous/request/
+COPY mpi/pds/asynchronous/request/service.py ./mpi/pds/asynchronous/request/
 COPY mpi/pds/asynchronous/request/trace_status.py ./mpi/pds/asynchronous/request/
 
 # Copy the Lambda handler

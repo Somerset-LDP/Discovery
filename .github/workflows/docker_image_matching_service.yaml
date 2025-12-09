@@ -34,8 +34,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ./patient/matching/
-          file: ./patient/matching/aws/lambda/Dockerfile
+          context: ./patient/
+          file: ./patient/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |

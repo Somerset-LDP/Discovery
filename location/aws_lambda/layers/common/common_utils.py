@@ -22,3 +22,8 @@ class DataIngestionEvent:
 class DataIngestionSource(str, Enum):
     ONSPD = "onspd"
     IMD_2019 = "imd_2019"
+
+
+class DataIngestionStatus(str, Enum):
+    BRONZE_DONE = "bronze_done"
+    SILVER_DONE = "silver_done"

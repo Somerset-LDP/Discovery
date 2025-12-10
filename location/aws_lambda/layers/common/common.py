@@ -1,16 +1,14 @@
+import hashlib
 import logging
 import os
 import tempfile
 from datetime import datetime
 from io import BytesIO
+from typing import Any
 
 import requests
 
-from location.aws_lambda.layers.common.common_utils import (
-    DOWNLOAD_TIMEOUT_SECONDS,
-    CHUNK_SIZE_BYTES,
-    DataIngestionException
-)
+from location.aws_lambda.layers.common.common_utils import DOWNLOAD_TIMEOUT_SECONDS, CHUNK_SIZE_BYTES, DataIngestionException
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("log_level", "DEBUG"))
@@ -151,3 +149,18 @@ def parse_to_datetime(ingestion_timestamp: str) -> datetime:
         f"Invalid ingestion_timestamp format: '{ingestion_timestamp}'. "
         f"Expected ISO 8601 format (e.g., '2025-12-01' or '2025-12-01T10:00:00' or '2025-12-01T10:00:00.123Z')"
     )
+
+
+def calculate_sha256_checksum(file_name: str, file_stream: Any, chunk_size: int = CHUNK_SIZE_BYTES) -> str:
+    try:
+        logger.debug(f"Calculating checksum for file: {file_name}")
+        sha256_hash = hashlib.sha256()
+
+        while chunk := file_stream.read(chunk_size):
+            sha256_hash.update(chunk)
+        checksum = sha256_hash.hexdigest()
+        logger.debug(f"Checksum for file: {file_name} calculated, checksum: {checksum}")
+        return checksum
+    except Exception as e:
+        raise DataIngestionException(f"Failed to calculate checksum for file: {file_name}, exception: {str(e)}")
+

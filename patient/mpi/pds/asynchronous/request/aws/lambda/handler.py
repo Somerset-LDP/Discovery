@@ -21,6 +21,34 @@ _cached_username = None
 _cached_password = None
 
 def lambda_handler(event, context):
+    """
+    AWS Lambda entrypoint for asynchronous PDS patient trace request submission.
+    Wraps mpi.pds.asynchronous.request.service.PdsAsyncRequestService.
+
+    This Lambda is triggered on a schedule to submit batches of outstanding patient trace requests to PDS via MESH.
+
+    Expected event format:
+        The event is typically empty or contains metadata for the invocation. No patient data is required in the event.
+
+    Returns a response dict with statusCode and body containing the results.
+    The result body includes a message, the AWS request ID, and a status object with:
+        - patient_ids: List of patient IDs included in the submission batch.
+        - submission_time: ISO8601 timestamp of when the submission occurred.
+
+    Example response:
+    {
+        "statusCode": 200,
+        "body": {
+            "message": "PDS Trace submission completed successfully",
+            "request_id": "<AWS request ID>",
+            "status": {
+                "patient_ids": ["patient-id-1", "patient-id-2", ...],
+                "submission_time": "2025-12-10T12:34:56.789Z"
+            }
+        }
+    }
+    """
+
     try:    
         logger.info("Starting PDS MESH request submission Lambda execution")
         logger.debug(f"Event: {event}")

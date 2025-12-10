@@ -1,10 +1,12 @@
 """
 Timer-triggered Lambda for checking PDS async response inbox.
-If a response is found, triggers a trace event.
 """
-from mpi.pds.async.response.trace import Trace
 
-def handler(event, context):
-    trace = Trace()
-    return trace.check_for_response()
+def lambda_handler(event, context):
+    # TODO - 
+    # implement PDS async response inbox checking, 
+    # pseudonymisation of results, 
+    # deletion of inbox items 
+    # trigger response ready event
+    pass    
 

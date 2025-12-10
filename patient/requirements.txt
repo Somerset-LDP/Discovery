@@ -1,0 +1,6 @@
+pandas==2.3.3
+psycopg2-binary==2.9.10
+sqlalchemy==2.0.43
+boto3==1.40.46
+pytest==8.4.2
+testcontainers==4.13.0

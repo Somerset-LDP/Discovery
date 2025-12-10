@@ -71,3 +71,6 @@ lambda_functions/pseudonymisation/.start_lambda.py
 layers/pseudonymised/.start_lambda.py
 layers/ig-conformance/.start_lambda.py
 layers/canonical/.start_lambda.py
+/location/aws_lambda/functions/data_ingestion/.start_lambda.py
+/lambda_functions/pseudonymisation/dependency-layer/
+/location/dependency-layer/

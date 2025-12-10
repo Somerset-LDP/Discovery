@@ -2,8 +2,8 @@ import logging
 import os
 from typing import Any
 
-from location.aws_lambda.functions.data_ingestion.imd_data_ingestion import ingest_imd_data
-from location.aws_lambda.functions.data_ingestion.onspd_data_ingestion import ingest_onspd_data
+from imd_data_ingestion import ingest_imd_data
+from onspd_data_ingestion import ingest_onspd_data
 from location.aws_lambda.layers.common.common_utils import DataIngestionEvent, DataIngestionSource, \
     DataIngestionException
 

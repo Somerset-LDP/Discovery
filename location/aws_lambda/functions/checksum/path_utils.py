@@ -22,8 +22,8 @@ def parse_landing_path(object_key: str) -> Optional[S3PathInfo]:
     Examples:
         - landing/reference/onspd/2024/02/05/ONSPD_FEB_2024_UK.csv
           → dataset_key='reference/onspd', file_name='ONSPD_FEB_2024_UK.csv'
-        - landing/reference/imd2019/2025/12/08/IMD2019_English_LSOA.csv
-          → dataset_key='reference/imd2019', file_name='IMD2019_English_LSOA.csv'
+        - landing/reference/imd_2019/2025/12/08/File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx
+          → dataset_key='reference/imd_2019', file_name='File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx'
     """
     if not object_key:
         logger.warning("Empty object key provided")
@@ -31,8 +31,8 @@ def parse_landing_path(object_key: str) -> Optional[S3PathInfo]:
 
     parts = object_key.split("/")
 
-    if len(parts) < 4:
-        logger.warning(f"Path too short to parse: {object_key}")
+    if len(parts) < 7:
+        logger.warning(f"Path too short to parse (expected at least 7 parts): {object_key}")
         return None
 
     if parts[0] != "landing" or parts[1] != "reference":

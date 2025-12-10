@@ -5,16 +5,16 @@ from location.aws_lambda.functions.checksum.path_utils import parse_landing_path
 
 @pytest.mark.parametrize("object_key,expected_dataset_key,expected_file_name,expected_bronze_key", [
     (
-            "landing/reference/onspd/202402/ONSPD_FEB_2024_UK.csv",
+            "landing/reference/onspd/2024/02/05/ONSPD_FEB_2024_UK.csv",
             "reference/onspd",
             "ONSPD_FEB_2024_UK.csv",
-            "bronze/reference/onspd/202402/ONSPD_FEB_2024_UK.csv"
+            "bronze/reference/onspd/2024/02/05/ONSPD_FEB_2024_UK.csv"
     ),
     (
-            "landing/reference/imd2019/2019/IMD2019_English_LSOA.csv",
-            "reference/imd2019",
-            "IMD2019_English_LSOA.csv",
-            "bronze/reference/imd2019/2019/IMD2019_English_LSOA.csv"
+            "landing/reference/imd_2019/2019/01/01/File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx",
+            "reference/imd_2019",
+            "File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx",
+            "bronze/reference/imd_2019/2019/01/01/File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx"
     ),
     (
             "landing/reference/dataset/2025/01/15/file.parquet",

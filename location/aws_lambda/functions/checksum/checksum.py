@@ -34,10 +34,8 @@ def handler(event: dict, context: Any) -> dict:
             logger.info(f"Skipping non-reference path: {s3_event.key}")
             return {"status": "skipped", "reason": "non-reference path"}
 
-        logger.debug(f"Calculating checksum for {path_info.file_name}")
         stream = get_s3_object_stream(s3_event.bucket, s3_event.key)
         checksum = calculate_sha256_checksum(path_info.file_name, stream)
-        logger.info(f"Checksum calculated for {path_info.file_name}: {checksum[:16]}")
 
         existing_record = get_ingest_record(path_info.dataset_key, path_info.file_name)
 
@@ -46,7 +44,6 @@ def handler(event: dict, context: Any) -> dict:
             delete_s3_object(s3_event.bucket, s3_event.key)
             return {"status": "skipped", "reason": "duplicate", "checksum": checksum}
 
-        logger.debug(f"Copying to Bronze: {path_info.bronze_key}")
         copy_s3_object(s3_event.bucket, path_info.full_key, BRONZE_BUCKET, path_info.bronze_key)
 
         ingested_at = parse_to_datetime(s3_event.ingestion_timestamp)

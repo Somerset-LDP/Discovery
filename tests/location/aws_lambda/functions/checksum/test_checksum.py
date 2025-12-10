@@ -12,7 +12,7 @@ VALID_S3_EVENT = {
         "eventTime": "2025-01-15T10:30:00.000Z",
         "s3": {
             "bucket": {"name": "ldp-zone-a-landing"},
-            "object": {"key": "landing/reference/onspd/202402/ONSPD_FEB_2024_UK.csv"}
+            "object": {"key": "landing/reference/onspd/2024/02/05/ONSPD_FEB_2024_UK.csv"}
         }
     }]
 }

@@ -1,0 +1,36 @@
+name: Zip and Upload Checksum Lambda Files to S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'location/aws_lambda/functions/checksum/**'
+
+
+jobs:
+  zip-and-upload:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: arn:aws:iam::647582858282:role/GithubRunnerRole
+          aws-region: eu-west-2
+
+
+      - name: Create ZIP with Python files
+        run: |
+          cd location/aws_lambda/functions/checksum && zip lambda_main.zip *
+
+      - name: Upload ZIP to S3
+        run: |
+          cd location/aws_lambda/functions/checksum && aws s3 cp lambda_main.zip s3://somerset-647582858282-dev-lambda/checksum/lambda_main.zip

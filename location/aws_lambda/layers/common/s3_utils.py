@@ -1,22 +1,52 @@
 import logging
 import os
 import zipfile
+from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, BinaryIO, Union
+from urllib.parse import unquote_plus
 
 import boto3
 from botocore.exceptions import ClientError
 
 from location.aws_lambda.layers.common.common import parse_to_datetime
-from location.aws_lambda.layers.common.common_utils import (
-    DataIngestionException,
-    CHUNK_SIZE_BYTES
-)
+from location.aws_lambda.layers.common.common_utils import DataIngestionException, CHUNK_SIZE_BYTES
 
 logger = logging.getLogger(__name__)
-logger.setLevel(os.environ.get("log_level", "DEBUG"))
+logger.setLevel(os.environ.get("LOG_LEVEL", "DEBUG"))
 
 s3_client = boto3.client("s3")
+
+
+@dataclass
+class S3EventInfo:
+    bucket: str
+    key: str
+    ingestion_timestamp: str
+
+
+def parse_s3_event(event: dict) -> S3EventInfo:
+    try:
+        records = event.get("Records", [])
+        if not records:
+            raise ValueError("No records found in S3 event")
+
+        record = records[0]
+        s3_data = record.get("s3", {})
+        bucket = s3_data.get("bucket", {}).get("name")
+        key = s3_data.get("object", {}).get("key")
+
+        if not bucket or not key:
+            raise ValueError(f"Missing bucket or key in S3 event: bucket={bucket}, key={key}")
+
+        key = unquote_plus(key)
+        ingestion_timestamp = record.get("eventTime", "")
+
+        logger.debug(f"Parsed S3 event: bucket={bucket}, key={key}, timestamp={ingestion_timestamp}")
+        return S3EventInfo(bucket=bucket, key=key, ingestion_timestamp=ingestion_timestamp)
+
+    except (KeyError, IndexError, TypeError) as e:
+        raise ValueError(f"Invalid S3 event structure: {e}")
 
 
 def create_s3_key(data_source: str, ingestion_timestamp: str, file_name: str) -> str:
@@ -213,3 +243,67 @@ def upload_from_zip_to_s3(zip_file_path: str, target_file_path: str, s3_bucket: 
         raise
     except Exception as e:
         raise DataIngestionException(f"Unexpected error extracting from ZIP and uploading to S3: {str(e)}")
+
+
+def copy_s3_object(source_bucket: str, source_key: str, dest_bucket: str, dest_key: str) -> None:
+    if not source_bucket or not source_key:
+        raise DataIngestionException("Source bucket or key is null or empty")
+    if not dest_bucket or not dest_key:
+        raise DataIngestionException("Destination bucket or key is null or empty")
+
+    copy_source = {"Bucket": source_bucket, "Key": source_key}
+    logger.debug(f"Copying s3://{source_bucket}/{source_key} to s3://{dest_bucket}/{dest_key}")
+
+    try:
+        s3_client.copy_object(
+            CopySource=copy_source,
+            Bucket=dest_bucket,
+            Key=dest_key
+        )
+        logger.info(f"Copied s3://{source_bucket}/{source_key} to s3://{dest_bucket}/{dest_key}")
+
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_msg = e.response.get('Error', {}).get('Message', str(e))
+        raise DataIngestionException(
+            f"S3 copy failed from s3://{source_bucket}/{source_key} to s3://{dest_bucket}/{dest_key}. "
+            f"Error: {error_code} - {error_msg}"
+        )
+
+
+def delete_s3_object(bucket: str, key: str) -> None:
+    if not bucket or not key:
+        raise DataIngestionException("Bucket or key is null or empty")
+
+    logger.debug(f"Deleting s3://{bucket}/{key}")
+
+    try:
+        s3_client.delete_object(Bucket=bucket, Key=key)
+        logger.info(f"Deleted s3://{bucket}/{key}")
+
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_msg = e.response.get('Error', {}).get('Message', str(e))
+        raise DataIngestionException(
+            f"S3 delete failed for s3://{bucket}/{key}. Error: {error_code} - {error_msg}"
+        )
+
+
+def get_s3_object_stream(bucket: str, key: str) -> BinaryIO:
+    if not bucket or not key:
+        raise DataIngestionException("Bucket or key is null or empty")
+
+    logger.debug(f"Getting stream for s3://{bucket}/{key}")
+
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        return response['Body']
+
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_msg = e.response.get('Error', {}).get('Message', str(e))
+        raise DataIngestionException(
+            f"Failed to get object s3://{bucket}/{key}. Error: {error_code} - {error_msg}"
+        )
+
+

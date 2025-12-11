@@ -8,8 +8,13 @@ import pytest
 from botocore.exceptions import ClientError
 
 from location.aws_lambda.layers.common.common_utils import DataIngestionException, CHUNK_SIZE_BYTES
-from location.aws_lambda.layers.common.s3_utils import create_s3_key, upload_to_s3, upload_to_s3_multipart, \
-    upload_from_zip_to_s3
+from location.aws_lambda.layers.common.s3_utils import (
+    create_s3_key,
+    upload_to_s3,
+    upload_to_s3_multipart,
+    upload_from_zip_to_s3,
+    parse_s3_event
+)
 
 VALID_TIMESTAMP = "2025-12-01T10:00:00.123"
 VALID_DATA_SOURCE = "onspd"
@@ -327,3 +332,49 @@ def test_upload_from_zip_to_s3_raises_exception_for_empty_file():
     finally:
         if os.path.exists(temp_zip_path):
             os.unlink(temp_zip_path)
+
+
+def test_parse_s3_event_extracts_bucket_key_and_timestamp():
+    event = {
+        "Records": [{
+            "eventTime": "2025-01-15T10:30:00.000Z",
+            "s3": {
+                "bucket": {"name": "test-bucket"},
+                "object": {"key": "landing/reference/onspd/file.csv"}
+            }
+        }]
+    }
+
+    result = parse_s3_event(event)
+
+    assert result.bucket == "test-bucket"
+    assert result.key == "landing/reference/onspd/file.csv"
+    assert result.ingestion_timestamp == "2025-01-15T10:30:00.000Z"
+
+
+def test_parse_s3_event_decodes_url_encoded_key():
+    event = {
+        "Records": [{
+            "eventTime": "2025-01-15T10:30:00.000Z",
+            "s3": {
+                "bucket": {"name": "test-bucket"},
+                "object": {"key": "landing/reference/folder+with+spaces/file%2B1.csv"}
+            }
+        }]
+    }
+
+    result = parse_s3_event(event)
+
+    assert result.key == "landing/reference/folder with spaces/file+1.csv"
+
+
+@pytest.mark.parametrize("invalid_event", [
+    {},
+    {"Records": []},
+    {"Records": [{"s3": {}}]},
+    {"Records": [{"s3": {"bucket": {}}}]},
+    {"Records": [{"s3": {"bucket": {"name": "bucket"}, "object": {}}}]},
+])
+def test_parse_s3_event_raises_exception_for_invalid_event(invalid_event):
+    with pytest.raises(ValueError):
+        parse_s3_event(invalid_event)

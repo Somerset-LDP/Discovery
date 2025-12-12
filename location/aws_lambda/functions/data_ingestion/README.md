@@ -1,24 +1,26 @@
-# Data Ingestion Lambda - Environment Variables
+# Data Ingestion Lambda
 
-## Required Environment Variables
+Downloads reference data from external sources and uploads to S3 Landing zone.
 
-### ONSPD (Office for National Statistics Postcode Directory)
+## Overview
 
-```bash
-ONSPD_URL="https://www.arcgis.com/sharing/rest/content/items/6fb8941d58e54d949f521c92dfb92f2a/data"
-ONSPD_TARGET_PREFIX="ONSPD_FEB_2024_UK/Data/ONSPD_FEB_2024_UK.csv"
+This function:
+
+1. Receives event with data source type and target bucket
+2. Downloads file from external URL (ONSPD or IMD)
+3. Extracts content if needed (ZIP for ONSPD)
+4. Uploads to S3 Landing bucket with date-partitioned path
+
+## Processing Flow
+
+```
+External Source (HTTP) → Data Ingestion Lambda → S3 Landing
+        ↓                                              ↓
+   ONSPD (ZIP)                          landing/reference/{source}/YYYY/MM/DD/
+   IMD (XLSX)
 ```
 
-### IMD (Index of Multiple Deprivation)
-
-```bash
-IMD_URL="https://assets.publishing.service.gov.uk/media/691dece32c6b98ecdbc500d5/File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx"
-IMD_TARGET_PREFIX="File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx"
-```
-
-## Usage
-
-### Lambda Event Structure
+## Lambda Event Format
 
 ```json
 {
@@ -28,44 +30,61 @@ IMD_TARGET_PREFIX="File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx"
 }
 ```
 
-**Timestamp Format:**
-The `ingestion-timestamp` field accepts various ISO 8601 formats:
-- Date only: `2025-12-01`
-- Date and time: `2025-12-01T14:30:45`
-- Date, time and fractional seconds: `2025-12-01T14:30:45.123456`
-- With trailing 'Z': `2025-12-01T14:30:45.123456Z`
-- Space separator: `2025-12-01 14:30:45`
+| Parameter             | Required | Description                              |
+|-----------------------|----------|------------------------------------------|
+| `data_source`         | Yes      | Source type: `onspd` or `imd_2019`       |
+| `s3_bucket`           | Yes      | Target S3 bucket name                    |
+| `ingestion-timestamp` | Yes      | ISO 8601 timestamp for path partitioning |
 
-All formats are parsed to extract year, month, and day for the S3 path.
+**Supported timestamp formats:**
 
-### S3 Output Path Format
+- `2025-12-01`
+- `2025-12-01T14:30:45`
+- `2025-12-01T14:30:45.123456`
+- `2025-12-01T14:30:45Z`
+
+## Environment Variables
+
+### ONSPD (Office for National Statistics Postcode Directory)
+
+| Variable              | Required | Description                                                                       |
+|-----------------------|----------|-----------------------------------------------------------------------------------|
+| `ONSPD_URL`           | Yes      | URL to download ONSPD ZIP file                                                    |
+| `ONSPD_TARGET_PREFIX` | Yes      | Path within ZIP to extract (e.g., `ONSPD_FEB_2024_UK/Data/ONSPD_FEB_2024_UK.csv`) |
+
+### IMD (Index of Multiple Deprivation)
+
+| Variable            | Required | Description                                                                 |
+|---------------------|----------|-----------------------------------------------------------------------------|
+| `IMD_URL`           | Yes      | URL to download IMD XLSX file                                               |
+| `IMD_TARGET_PREFIX` | Yes      | Output filename (e.g., `File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx`) |
+
+## Data Sources
+
+| Source   | Value      | Format             | Processing                                |
+|----------|------------|--------------------|-------------------------------------------|
+| ONSPD    | `onspd`    | ZIP containing CSV | Downloads to temp, extracts specific file |
+| IMD 2019 | `imd_2019` | XLSX               | Downloads directly to memory              |
+
+## S3 Output Path
+
+**Pattern:**
 
 ```
 s3://{s3_bucket}/landing/reference/{data_source}/YYYY/MM/DD/{filename}
 ```
 
-**Example for ONSPD:**
+**Examples:**
+
 ```
 s3://ldp-zone-a-landing/landing/reference/onspd/2025/12/01/ONSPD_FEB_2024_UK.csv
-```
-
-**Example for IMD:**
-```
 s3://ldp-zone-a-landing/landing/reference/imd_2019/2025/12/01/File_1_IoD2025_Index_of_Multiple_Deprivation.xlsx
 ```
 
-## Data Sources
-
-| Data Source | Value | Description |
-|-------------|-------|-------------|
-| ONSPD | `onspd` | Office for National Statistics Postcode Directory |
-| IMD 2019 | `imd_2019` | Index of Multiple Deprivation 2019 |
-
 ## Notes
 
-- **ONSPD**: Downloads ZIP file to temporary storage and extracts specific CSV file from path defined in `ONSPD_TARGET_PREFIX`
-- **IMD**: Downloads XLSX file directly to memory (small file, no extraction needed)
-- Date components (YYYY/MM/DD) are extracted from `ingestion-timestamp` (accepts various ISO 8601 formats)
-- Filename in S3 key is extracted from the last component of `TARGET_PREFIX`
-- Large files use temporary disk storage to minimise memory usage
+- ONSPD ZIP files are large (~1,3GB) - uses temporary disk storage to minimise memory usage
+- IMD XLSX files are small - downloaded directly to memory
+- Temporary files are cleaned up after successful upload
+- Date path components (YYYY/MM/DD) extracted from `ingestion-timestamp`
 

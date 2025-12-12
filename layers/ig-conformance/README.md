@@ -1,61 +1,119 @@
-# IG Conformance layer
-Data stored in the IG conformance layer is derived from raw data. In order for raw data to be stored in the IG conformance layer it flows through the following steps
+# IG Conformance Layer
 
-* only records for patient's who are in the cohort are retained, all other records are discarded
-* records that are retained have their special category data e.g. Ethnicity replaced with a synthetic equivalent
+Filters raw healthcare data to retain only records for patients in the approved cohort.
 
-Once the pipeline has finished processing a raw data set that data set is deleted from the LDP. Additionally the data stored in the IG conformance layer is expected to be short lived and to be deleted as soon as it has been processed by the next layer - [Pseudonymised](../pseudonymised//README.md)
+## Purpose
 
-## Step Function Integration
+This layer is the first processing step after raw data ingestion. It ensures:
 
-The Lambda is designed to be triggered by with required event parameters:
+- **Cohort filtering** - Only records for patients in the pseudonymised cohort are retained
+- **Data minimisation** - All non-cohort records are discarded immediately
+- **Short-lived storage** - Data is deleted after processing by the next
+  layer ([Pseudonymised](../pseudonymised/README.md))
+
+## Processing Flow
+
+```
+Raw Data (S3) → IG Conformance Lambda → Filtered Data (S3) → [Pseudonymised Layer]
+                        ↓
+                  Cohort Store (pseudonymised NHS numbers)
+                        ↓
+                  Pseudonymisation Lambda (encrypt NHS for comparison)
+```
+
+1. Read input file from S3
+2. Extract NHS numbers from records
+3. Encrypt NHS numbers via Pseudonymisation Lambda
+4. Compare encrypted NHS against cohort store
+5. Retain only matching records
+6. Write filtered output to S3
+7. Delete source file
+
+## Event Format
 
 ```json
 {
-  "input_path": "s3://bucket/path/to/input/file.csv",
-  "output_path": "s3://bucket/output",
+  "input_path": "s3://bucket/bronze/gp/2024/01/15/patients.csv",
+  "output_path": "s3://bucket/ig-conformance",
   "feed_type": "gp"
 }
 ```
 
-**Parameters:**
-- `input_path` (required) - Full S3 path to input file
-- `output_path` (required) - Base S3 path for output files
-- `feed_type` (required) - Feed type: `gp` or `sft`
+| Parameter     | Required | Description                                                |
+|---------------|----------|------------------------------------------------------------|
+| `input_path`  | Yes      | Full S3 path to input CSV file                             |
+| `output_path` | Yes      | Base S3 path for output (date path appended automatically) |
+| `feed_type`   | Yes      | Feed type: `gp` or `sft`                                   |
 
-**Feed differences:**
-- GP: NHS number in column 0, 2 metadata rows, metadata preserved in output
-- SFT: NHS number in column 1, no metadata rows, no metadata in output
+### Response
 
-Output structure: `{output_path}/{feed_type}_feed/YYYY/MM/DD/original_filename.csv`
+```json
+{
+  "statusCode": 200,
+  "body": {
+    "request_id": "abc-123",
+    "message": "GP pipeline executed successfully",
+    "feed_type": "gp",
+    "input_records": 15000,
+    "output_records": 4523,
+    "output_file": "s3://bucket/ig-conformance/gp_feed/2024/01/15/patients.csv"
+  }
+}
+```
 
-## Project strucutre
+## Feed Configurations
+
+| Feed  | NHS Column | Metadata Rows  | Preserve Metadata |
+|-------|------------|----------------|-------------------|
+| `gp`  | Column 0   | 2 rows skipped | Yes               |
+| `sft` | Column 1   | None           | No                |
+
+**Output path structure:** `{output_path}/{feed_type}_feed/YYYY/MM/DD/{original_filename}`
+
+## Environment Variables
+
+| Variable                                | Required | Description                                                        |
+|-----------------------------------------|----------|--------------------------------------------------------------------|
+| `COHORT_STORE`                          | Yes      | S3 path to cohort file (CSV, no header, pseudonymised NHS numbers) |
+| `PSEUDONYMISATION_LAMBDA_FUNCTION_NAME` | Yes      | Name of Pseudonymisation Lambda                                    |
+| `KMS_KEY_ID`                            | Yes      | ARN of KMS key for output encryption                               |
+| `LOG_LEVEL`                             | No       | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `INFO`)   |
+| `PSEUDONYMISATION_BATCH_SIZE`           | No       | Max NHS numbers per pseudonymisation request (default: 10000)      |
+| `SKIP_ENCRYPTION`                       | No       | Skip pseudonymisation calls (testing only, not for production)     |
+
+### Cohort Store Format
+
+CSV file with pseudonymised NHS numbers (one per line, no header):
+
+```
+YWJjZGVmZ2hpamts...
+cXJzdHV2d3h5ejEy...
+Nzg5MGFiY2RlZmdo...
+```
+
+## Project Structure
+
 ```
 ig-conformance/
-├── README.md
-│   └─ Project documentation and usage instructions.
 ├── aws/
-│   └─ AWS specific code e.g. Lambdas to run pipelines in an AWS environment
+│   └── lambdas/
+│       └── handler.py      # Lambda entry point
 ├── common/
-│   └─ Shared code that can be used across the project e.g. cohort membership filtering.
+│   ├── cohort_membership.py  # Cohort store reader
+│   └── filesystem.py         # S3/local file operations
 ├── pipeline/
-|    └─ Data ingestion pipelines
-└── tests/
-    └─ Unit and Integration tests built with Pytest
+│   ├── conformance_processor.py  # Core filtering logic
+│   └── feed_config.py            # Feed type configurations
+├── tests/
+├── Dockerfile
+├── requirements.txt
+└── README.md
 ```
 
-## Build & Test
+## Build & Deploy
 
-### Prerequisites
-- Docker with buildx support
-- Python 3.12+
-- pytest for running tests
+### Building Docker Image
 
-## Building the Docker image
-
-The Lambda function is packaged as a Docker container for deployment to AWS Lambda.
-
-For local development and testing -
 ```bash
 docker buildx build \
   --platform linux/amd64 \
@@ -64,16 +122,20 @@ docker buildx build \
   -f Dockerfile .
 ```
 
-Smoke testing the image- 
-```bash
-docker run -d --platform linux/amd64 -p 9000:8080 conformance_processor:latest
+### Local Testing
 
-curl "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{}'
+```bash
+# Start container
+docker run -d --platform linux/amd64 -p 9000:8080 ig_conformance:latest
+
+# Test invocation
+curl "http://localhost:9000/2015-03-31/functions/function/invocations" \
+  -d '{"input_path": "s3://test/input.csv", "output_path": "s3://test/output", "feed_type": "gp"}'
 ```
 
-#### Corporate Network Build (ZScaler)
-When building behind corporate firewalls or proxies, include SSL certificates:
-Note that the secret id must be named `ssl-certs` and points to the path of your corporate SSL cert
+### Corporate Network Build (ZScaler)
+
+When building behind corporate proxies, include SSL certificates:
 
 ```bash
 docker buildx build \
@@ -83,13 +145,3 @@ docker buildx build \
   -t ig_conformance:latest \
   -f Dockerfile .
 ```
-
-## Environment variables
-
-* `COHORT_STORE` - path to the cohort store
-* `PSEUDONYMISATION_LAMBDA_FUNCTION_NAME` - the name of the Pseudonymisation Lambda that the IG conformance pipeline will use as part of the cohort checking step
-* `KMS_KEY_ID` - the ARN of the KMS encryption key used when writing to the `OUTPUT_LOCATION`. 
-* `LOG_LEVEL` - an optional variable that alters the default log level of `INFO`. You must supply a valid log level for the Python logging library i.e. `CRITICAL`, `FATAL`, `ERROR`, `WARNING`, `INFO` or `DEBUG`
-* `PSEUDONYMISATION_BATCH_SIZE` - an optional variable to set the max number of NHS numbers (as an integer) that will be sent in a single request to the Pseudonymisation Lambda. Default value is 10000
-
-For testing the `SKIP_ENCRYPTION` variable can be set to avoid calling out to the Psuedonymisation service. This is not recommended for production

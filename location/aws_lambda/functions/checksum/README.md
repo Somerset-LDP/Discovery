@@ -2,57 +2,132 @@
 
 Lambda function triggered by S3 events that processes reference data files arriving in the Landing zone.
 
-> **Note**: The original HLD specified DynamoDB for storing ingestion records. However, due to the use of RDS for
-> matching and FHIR purposes, the decision was made to store this data in RDS as well.
-
 ## Overview
 
 This function:
 
 1. Calculates SHA256 checksum for files arriving in Landing bucket
-2. Checks RDS database for existing records
+2. Checks database for existing records (duplicate detection)
 3. Copies file to Bronze bucket if new/changed
 4. Updates database record with status `bronze_done`
-5. Removes file from Landing bucket
+5. Removes duplicate from Landing bucket (or moves new file)
+
+## Processing Flow
+
+```
+S3 Landing (ObjectCreated) → Checksum Lambda → S3 Bronze
+                                   ↓
+                            PostgreSQL (location.ldp_file_ingest_log)
+```
 
 ## Trigger
 
-- **Event**: S3 ObjectCreated:*
-- **Bucket**: `ldp-zone-a-landing`
-- **Prefix**: `landing/reference/`
+| Setting | Value                |
+|---------|----------------------|
+| Event   | `S3:ObjectCreated:*` |
+| Bucket  | `ldp-zone-a-landing` |
+| Prefix  | `landing/reference/` |
+
+## Path Structure
+
+**Expected input path format:**
+
+```
+landing/reference/{dataset}/{year}/{month}/{day}/{filename}
+```
+
+**Example mapping:**
+
+```
+landing/reference/onspd/2024/12/02/ONSPD_DEC_2024.csv
+    → bronze/reference/onspd/2024/12/02/ONSPD_DEC_2024.csv
+```
 
 ## Environment Variables
 
-| Variable                 | Description                                                  |
-|--------------------------|--------------------------------------------------------------|
-| `BRONZE_BUCKET`          | Destination S3 bucket name (required)                        |
-| `LDP_DB_HOST`            | PostgreSQL database host (required)                          |
-| `LDP_DB_PORT`            | PostgreSQL database port (default: 5432)                     |
-| `LDP_DB_NAME`            | PostgreSQL database name (default: ldp)                      |
-| `LDP_DB_USERNAME_SECRET` | Secrets Manager secret name for database username (required) |
-| `LDP_DB_PASSWORD_SECRET` | Secrets Manager secret name for database password (required) |
-| `LOG_LEVEL`              | Logging level (default: DEBUG)                               |
+| Variable                 | Required | Default | Description                         |
+|--------------------------|----------|---------|-------------------------------------|
+| `BRONZE_BUCKET`          | Yes      | -       | Destination S3 bucket name          |
+| `LDP_DB_HOST`            | Yes      | -       | PostgreSQL database host            |
+| `LDP_DB_PORT`            | No       | `5432`  | PostgreSQL database port            |
+| `LDP_DB_NAME`            | No       | `ldp`   | PostgreSQL database name            |
+| `LDP_DB_USERNAME_SECRET` | Yes      | -       | Secrets Manager key for DB username |
+| `LDP_DB_PASSWORD_SECRET` | Yes      | -       | Secrets Manager key for DB password |
+| `LOG_LEVEL`              | No       | `DEBUG` | Logging level                       |
 
-## Path Mapping
+## Database Schema
 
-Landing path → Bronze path:
-
-- `landing/reference/onspd/2024/12/02/file.csv` → `bronze/reference/onspd/2024/12/02/file.csv`
-
-## Database Table
-
+Schema: `location`  
 Table: `ldp_file_ingest_log`
 
-| Column        | Type      | Description                                      |
-|---------------|-----------|--------------------------------------------------|
-| `dataset_key` | VARCHAR   | Primary key part 1 (e.g., `reference/onspd`)     |
-| `file_name`   | VARCHAR   | Primary key part 2                               |
-| `checksum`    | VARCHAR   | SHA256 checksum                                  |
-| `status`      | VARCHAR   | Processing status (`bronze_done`, `silver_done`) |
-| `ingested_at` | TIMESTAMP | Ingestion timestamp                              |
-| `rows_bronze` | INTEGER   | Optional row count                               |
+```sql
+CREATE TABLE location.ldp_file_ingest_log (
+    dataset_key TEXT NOT NULL,  -- e.g., 'reference/onspd'
+    file_name TEXT NOT NULL,
+    checksum TEXT NOT NULL,       -- SHA256 hex
+    status TEXT NOT NULL,         -- 'bronze_done', 'silver_done'
+    ingested_at TIMESTAMP NOT NULL,
+    rows_bronze INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (dataset_key, file_name)
+);
+```
 
-## Idempotency
+## Database Initialisation
 
-Re-uploading the same file content will not create additional copies in Bronze.
+Run the DDL script to create schema, table and user:
+
+```bash
+psql -d ldp -f location/data/init/ddl/create_schema_location.sql
+```
+
+After running, set the password for the role and store it in AWS Secrets Manager:
+
+```sql
+ALTER ROLE location_writer WITH PASSWORD 'your-secure-password';
+```
+
+This creates:
+
+- `location` schema
+- `ldp_file_ingest_log` table
+- `location_writer` role with INSERT/UPDATE/SELECT permissions (no DELETE)
+
+> **TODO (Phase 2)**: Extract SQL scripts to a dedicated database migrations repository with proper versioning
+> and migration tooling (e.g., Liquibase). Manual script execution is acceptable for Discovery
+> phase but not suitable for production deployments.
+
+## Duplicate Detection
+
+The function is **idempotent**:
+
+- If file with same `dataset_key` + `file_name` + `checksum` exists with status `bronze_done` or `silver_done` → file is
+  deleted from Landing (duplicate)
+- If checksum differs → file is copied to Bronze, record is updated
+
+## Response
+
+```json
+{
+  "status": "success",
+  "dataset_key": "reference/onspd",
+  "file_name": "ONSPD_DEC_2024.csv",
+  "checksum": "abc123...",
+  "bronze_key": "bronze/reference/onspd/2024/12/02/ONSPD_DEC_2024.csv"
+}
+```
+
+**Skipped (duplicate):**
+
+```json
+{
+  "status": "skipped",
+  "reason": "duplicate",
+  "checksum": "abc123..."
+}
+```
+
+> **Note**: The original HLD specified DynamoDB for storing ingestion records. However, due to the use of RDS for
+> matching and FHIR purposes, the decision was made to store this data in RDS as well.
 

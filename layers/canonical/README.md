@@ -1,121 +1,162 @@
-# Canonical layer
+# Canonical Layer
 
-**Purpose**: The source of truth for clean, consistent, canonical data models. This is the business-ready foundation for all downstream analytics and processing.
+**Purpose**: The source of truth for clean, consistent, canonical data models. This is the business-ready foundation for
+all downstream analytics and processing.
 
-**Characteristics**:
+## Characteristics
+
 - **Conflict resolution**: When multiple feeds provide conflicting data, business rules determine truth
-- **Canonical models**: Standard patient, encounter, observation entities reflecting business semantics
+- **Canonical models**: Standard patient entity reflecting business semantics
 - **Data quality enforcement**: Type validation, reference integrity, consistency rules
 - **Feed-agnostic**: Data structure no longer tied to source system quirks
-- **FHIR integration**: Code system validation and terminology mapping
-- **Multi-feed support**: Configurable processing for different feed types (GP, SFT, etc.)
+- **Deduplication**: Multiple records for same NHS number are merged (first occurrence wins)
 
-**Storage**: Relational database with normalized schema
+## Processing Flow
 
-## Feed Configuration
+```
+Pseudonymised (S3) → Canonical Lambda → PostgreSQL Database
+                           ↓
+                    Validation & Transformation
+                    (parse, validate, dedupe)
+```
 
-The canonical layer uses a feed configuration system (`canonical_feed_config.py`) to handle different data sources with varying structures and validation rules.
+1. Read CSV file from S3
+2. Parse columns according to feed configuration
+3. Validate required fields and data formats
+4. Deduplicate by NHS number (first record wins on conflict)
+5. Write to PostgreSQL `canonical.patient` table
 
-### Supported Feed Types
-
-#### GP Feed
-- **Metadata rows to skip**: 2
-- **Date format**: `%d-%b-%y` (e.g., "01-Jan-50")
-- **Has measurements**: Yes (height in cm, weight in kg)
-- **Required fields**: nhs_number, given_name, family_name, date_of_birth, postcode, sex
-- **CSV column mappings** (position → database column):
-  - 0: nhs_number
-  - 1: given_name
-  - 2: family_name
-  - 3: date_of_birth
-  - 4: postcode
-  - 6: sex
-  - 7: height_cm
-  - 9: height_observation_time
-  - 10: weight_kg
-  - 12: weight_observation_time
-- **Auxiliary columns**: first_line_of_address (5), height_unit (8), weight_unit (11), consultation_id (13), consultation_date (14), consultation_time (15), consultation_type (16), user_type (17)
-
-#### SFT Feed
-- **Metadata rows to skip**: 0
-- **Date format**: `%Y-%m-%d` (e.g., "1950-01-01")
-- **Has measurements**: No
-- **Required fields**: nhs_number, given_name, family_name, date_of_birth, sex, postcode
-- **CSV column mappings** (position → database column):
-  - 1: nhs_number
-  - 2: given_name
-  - 3: family_name
-  - 4: date_of_birth
-  - 5: sex
-  - 6: postcode
-- **Auxiliary columns**: pas_number (0), first_line_of_address (7)
-
-### Configuration Structure
-
-Each feed configuration (`FeedConfig` dataclass in `canonical_feed_config.py`) includes:
-- **feed_type**: Identifier (e.g., "gp", "sft")
-- **metadata_rows_to_skip**: Number of header rows to skip in CSV
-- **db_columns**: Dict mapping database column names to CSV column positions
-- **csv_auxiliary_columns**: Dict of auxiliary CSV columns not directly saved to database
-- **validation_rules**: Dict with:
-  - `required_patient_fields`: List of mandatory fields
-  - `valid_date_format`: Date format string for parsing
-  - `has_measurements`: Boolean indicating if feed includes height/weight
-  - Additional feed-specific validation rules
-
-### Lambda Event Format
-
-The Lambda function expects the following event structure:
+## Lambda Event Format
 
 ```json
 {
   "feed_type": "gp",
-  "input_path": "s3://bucket-name/path/to/file.csv"
+  "input_path": "s3://bucket-name/pseudonymised/gp_feed/2025/01/15/patient.csv"
 }
 ```
 
-**Required parameters**:
-- `feed_type` (string): Type of feed to process ("gp" or "sft")
-- `input_path` (string): S3 path to the input CSV file
+| Parameter    | Required | Description               |
+|--------------|----------|---------------------------|
+| `feed_type`  | Yes      | Feed type: `gp` or `sft`  |
+| `input_path` | Yes      | S3 path to input CSV file |
 
-### Environment Variables
+### Response
 
-- `OUTPUT_DB_HOST`: Database host
-- `OUTPUT_DB_PORT`: Database port (default: 5432)
-- `OUTPUT_DB_NAME`: Database name (default: "ldp")
-- `OUTPUT_DB_USERNAME_SECRET`: AWS Secrets Manager key for DB username
-- `OUTPUT_DB_PASSWORD_SECRET`: AWS Secrets Manager key for DB password
-- `OUTPUT_DB_SCHEMA`: Target schema (default: "canonical")
-- `OUTPUT_DB_TABLE`: Target table (default: "patient")
-- `LOG_LEVEL`: Logging level (default: "INFO")
+```json
+{
+  "statusCode": 200,
+  "body": {
+    "message": "GP pipeline execution completed successfully",
+    "request_id": "abc-123",
+    "feed_type": "gp",
+    "records_processed": 4523,
+    "records_stored": 4102
+  }
+}
+```
 
+## Environment Variables
 
-## Project strucutre
+| Variable                    | Required | Default     | Description                         |
+|-----------------------------|----------|-------------|-------------------------------------|
+| `OUTPUT_DB_HOST`            | Yes      | -           | PostgreSQL host                     |
+| `OUTPUT_DB_PORT`            | No       | `5432`      | PostgreSQL port                     |
+| `OUTPUT_DB_NAME`            | No       | `ldp`       | Database name                       |
+| `OUTPUT_DB_USERNAME_SECRET` | Yes      | -           | Secrets Manager key for DB username |
+| `OUTPUT_DB_PASSWORD_SECRET` | Yes      | -           | Secrets Manager key for DB password |
+| `OUTPUT_DB_SCHEMA`          | No       | `canonical` | Target schema                       |
+| `OUTPUT_DB_TABLE`           | No       | `patient`   | Target table                        |
+| `LOG_LEVEL`                 | No       | `INFO`      | Logging level                       |
+
+## Feed Configurations
+
+### GP Feed (`feed_type="gp"`)
+
+| Setting          | Value                           |
+|------------------|---------------------------------|
+| Metadata rows    | 2 (skipped)                     |
+| Date format      | `DD-Mon-YY` (e.g., `01-Jan-50`) |
+| Has measurements | Yes (height, weight)            |
+
+**Column mappings (CSV position → DB column):**
+
+| Position | DB Column                 | Required |
+|----------|---------------------------|----------|
+| 0        | `nhs_number`              | Yes      |
+| 1        | `given_name`              | Yes      |
+| 2        | `family_name`             | Yes      |
+| 3        | `date_of_birth`           | Yes      |
+| 4        | `postcode`                | Yes      |
+| 6        | `sex`                     | Yes      |
+| 7        | `height_cm`               | No       |
+| 9        | `height_observation_time` | No       |
+| 10       | `weight_kg`               | No       |
+| 12       | `weight_observation_time` | No       |
+
+### SFT Feed (`feed_type="sft"`)
+
+| Setting          | Value                             |
+|------------------|-----------------------------------|
+| Metadata rows    | None                              |
+| Date format      | `YYYY-MM-DD` (e.g., `1950-01-01`) |
+| Has measurements | No                                |
+
+**Column mappings (CSV position → DB column):**
+
+| Position | DB Column       | Required |
+|----------|-----------------|----------|
+| 1        | `nhs_number`    | Yes      |
+| 2        | `given_name`    | Yes      |
+| 3        | `family_name`   | Yes      |
+| 4        | `date_of_birth` | Yes      |
+| 5        | `sex`           | Yes      |
+| 6        | `postcode`      | Yes      |
+
+## Database Schema
+
+Target table: `canonical.patient`
+
+```sql
+CREATE TABLE canonical.patient (
+    nhs_number TEXT NOT NULL,
+    given_name TEXT NOT NULL,
+    family_name TEXT NOT NULL,
+    date_of_birth TEXT NOT NULL,
+    postcode TEXT NOT NULL,
+    sex TEXT,
+    height_cm NUMERIC(5,2),
+    height_observation_time TIMESTAMP,
+    weight_kg NUMERIC(5,2),
+    weight_observation_time TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## Project Structure
 
 ```
 canonical/
-├── README.md
-│   └─ Project documentation and usage instructions.
 ├── aws/
-│   └─ AWS specific code e.g. Lambdas to run pipelines in an AWS environment
+│   └── lambdas/
+│       └── handler.py        # Lambda entry point
+├── data/
+│   └── init/
+│       └── ddl/
+│           └── create_schema_canonical.sql  # Database schema DDL
 ├── pipeline/
-|    └─ Data ingestion pipelines
-└── tests/
-    └─ Unit and Integration tests built with Pytest
+│   ├── canonical_processor.py    # Core processing logic
+│   └── canonical_feed_config.py  # Feed configurations
+├── tests/
+├── Dockerfile
+├── requirements.txt
+└── README.md
 ```
 
-## Build & Test
+## Build & Deploy
 
-### Prerequisites
-- Docker with buildx support
-- Python 3.12+
-- pytest for running tests
+### Building Docker Image
 
-## Building the Docker image
-
-The Lambda function is packaged as a Docker container for deployment to AWS Lambda.
-
-For local development and testing -
 ```bash
 docker buildx build \
   --platform linux/amd64 \
@@ -124,19 +165,18 @@ docker buildx build \
   -f Dockerfile .
 ```
 
-Smoke testing the image- 
+### Local Testing
+
 ```bash
+# Start container
 docker run -d --platform linux/amd64 -p 9000:8080 canonical_layer:latest
 
-curl "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{
-  "feed_type": "gp",
-  "input_path": "s3://test-bucket/sample.csv"
-}'
+# Test invocation
+curl "http://localhost:9000/2015-03-31/functions/function/invocations" \
+  -d '{"feed_type": "gp", "input_path": "s3://test-bucket/sample.csv"}'
 ```
 
-#### Corporate Network Build (ZScaler)
-When building behind corporate firewalls or proxies, include SSL certificates:
-Note that the secret id must be named `ssl-certs` and points to the path of your corporate SSL cert
+### Corporate Network Build (ZScaler)
 
 ```bash
 docker buildx build \
@@ -146,3 +186,18 @@ docker buildx build \
   -t canonical_layer:latest \
   -f Dockerfile .
 ```
+
+## Database Initialisation
+
+Run the DDL script to create the schema and table:
+
+```bash
+psql -d ldp -v user_password="'YourSecurePassword'" \
+  -f data/init/ddl/create_schema_canonical.sql
+```
+
+This creates:
+
+- `canonical` schema
+- `patient` table
+- `canonical_writer` role with INSERT/UPDATE/SELECT permissions (no DELETE)

@@ -1,34 +1,66 @@
-# Pseudonymisation Lambda - Direct Invocation
+# Pseudonymisation Lambda
 
-This Lambda is designed for **direct invocation** from other Lambda functions.
-It processes **one field at a time** (single value or list of values).
+Deterministic encryption service for pseudonymising sensitive healthcare identifiers.
+Designed for **direct invocation** from other Lambda functions.
+
+## Key Properties
+
+| Property          | Description                                                                              |
+|-------------------|------------------------------------------------------------------------------------------|
+| **Deterministic** | Same input + same field → same pseudonym (enables joins across datasets)                 |
+| **Field-bound**   | Same value in different fields → different pseudonyms (prevents cross-field correlation) |
+| **Reversible**    | Authorised re-identification via `reidentify` action                                     |
+| **Key versioned** | Supports key rotation with automatic version detection during decryption                 |
+
+### Why Determinism Matters
+
+```
+encrypt("1234567890", "nhs_number") → "XYZ789ABC..."
+encrypt("1234567890", "nhs_number") → "XYZ789ABC..."  ← identical (enables matching)
+encrypt("1234567890", "mrn")        → "DEF456GHI..."  ← different (field-bound)
+```
 
 ## Event Format
 
 ```json
 {
-  "action": "encrypt",           // Required: "encrypt" or "reidentify"
-  "field_name": "nhs_number",    // Required: name of the field (used in AAD)
-  "field_value": "1234567890",   // Required: string or list of strings
-  "correlation_id": "abc-123"    // Optional: for tracing
+  "action": "encrypt",
+  // Required: "encrypt" or "reidentify"
+  "field_name": "nhs_number",
+  // Required: field identifier (part of AAD)
+  "field_value": "1234567890",
+  // Required: string or list of strings
+  "correlation_id": "abc-123"
+  // Optional: for distributed tracing
 }
 ```
 
+### Field Name (AAD)
+
+The `field_name` is used as Additional Authenticated Data (AAD) in AES-SIV encryption.
+This binds the pseudonym to the specific field, preventing:
+
+- Cross-field correlation attacks
+- Pseudonym reuse across different data types
+
+**Use consistent field names** across your pipeline (e.g., always `nhs_number`, not sometimes `nhs` or `NHS_Number`).
+
 ## Examples
 
-### 1. Encrypt single value
+### Encrypt single value
 
-**Input:**
+**Request:**
+
 ```json
 {
   "action": "encrypt",
   "field_name": "nhs_number",
-  "field_value": "1234567890",
-  "correlation_id": "req-001"
+  "field_value": "1234567890"
 }
 ```
 
-**Output:**
+**Response:**
+
 ```json
 {
   "field_name": "nhs_number",
@@ -36,22 +68,27 @@ It processes **one field at a time** (single value or list of values).
 }
 ```
 
-### 2. Encrypt list of values
+### Encrypt batch (recommended for performance)
 
-**Input:**
+**Request:**
+
 ```json
 {
   "action": "encrypt",
-  "field_name": "mrn",
-  "field_value": ["MRN001", "MRN002", "MRN003"],
-  "correlation_id": "req-002"
+  "field_name": "nhs_number",
+  "field_value": [
+    "1234567890",
+    "0987654321",
+    "5555555555"
+  ]
 }
 ```
 
-**Output:**
+**Response:**
+
 ```json
 {
-  "field_name": "mrn",
+  "field_name": "nhs_number",
   "field_value": [
     "YWJjZGVmZ2hpamtsbW5vcA==",
     "cXJzdHV2d3h5ejEyMzQ1Ng==",
@@ -60,19 +97,20 @@ It processes **one field at a time** (single value or list of values).
 }
 ```
 
-### 3. Reidentify single value
+### Reidentify (decrypt)
 
-**Input:**
+**Request:**
+
 ```json
 {
   "action": "reidentify",
   "field_name": "nhs_number",
-  "field_value": "ZXhhbXBsZV9lbmNyeXB0ZWRfZGF0YQ==",
-  "correlation_id": "req-003"
+  "field_value": "YWJjZGVmZ2hpamtsbW5vcA=="
 }
 ```
 
-**Output:**
+**Response:**
+
 ```json
 {
   "field_name": "nhs_number",
@@ -80,32 +118,9 @@ It processes **one field at a time** (single value or list of values).
 }
 ```
 
-### 4. Reidentify list of values
+## Error Handling
 
-**Input:**
-```json
-{
-  "action": "reidentify",
-  "field_name": "mrn",
-  "field_value": [
-    "YWJjZGVmZ2hpamtsbW5vcA==",
-    "cXJzdHV2d3h5ejEyMzQ1Ng=="
-  ],
-  "correlation_id": "req-004"
-}
-```
-
-**Output:**
-```json
-{
-  "field_name": "mrn",
-  "field_value": ["MRN001", "MRN002"]
-}
-```
-
-## Error Response
-
-When an error occurs, the response contains a meaningful error message:
+**Error response format:**
 
 ```json
 {
@@ -114,30 +129,15 @@ When an error occurs, the response contains a meaningful error message:
 }
 ```
 
-### Common Error Messages
+**Common errors:**
 
-**Validation errors:**
-- `'action' is required (encrypt or reidentify)`
-- `'field_name' is required`
-- `'field_value' is required`
-- `Invalid action: {action}. Must be 'encrypt' or 'reidentify'`
-- `Value cannot be empty`
-- `Pseudonym cannot be empty`
-
-**Configuration errors:**
-- `Environment variable SECRET_NAME_KMS_KEY not set`
-- `Environment variable SECRET_NAME_KEY_VERSIONS not set`
-- `Environment variable ALGORITHM_ID not set`
-- `Secret name cannot be empty`
-- `Key versions secret missing 'current' field`
-
-**AWS service errors:**
-- `AWS service error: AccessDeniedException` - Missing permissions
-- `AWS service error: ResourceNotFoundException` - Secret or KMS key not found
-- `AWS service error: InvalidCiphertextException` - Decryption failed (wrong key/data)
-
-**Encryption/decryption errors:**
-- `Encryption/decryption failed: {specific_error}` - Cryptographic operation failed
+| Error                                                    | Cause                                 |
+|----------------------------------------------------------|---------------------------------------|
+| `Missing required event fields: action, field_name`      | Incomplete request                    |
+| `Invalid action: xxx. Must be 'encrypt' or 'reidentify'` | Wrong action value                    |
+| `Value cannot be empty`                                  | Empty string or whitespace            |
+| `Failed to decrypt with any available key version`       | Invalid pseudonym or wrong field_name |
+| `AWS service error: AccessDeniedException`               | Missing IAM permissions               |
 
 ## Invoking from Another Lambda
 
@@ -147,78 +147,69 @@ import json
 
 lambda_client = boto3.client('lambda')
 
-# Encrypt a single value
-response = lambda_client.invoke(
-    FunctionName='pseudonymisation-dat-processing',
-    InvocationType='RequestResponse',
-    Payload=json.dumps({
-        'action': 'encrypt',
-        'field_name': 'nhs_number',
-        'field_value': '1234567890',
-        'correlation_id': 'my-correlation-id'
-    })
-)
 
-result = json.loads(response['Payload'].read())
-encrypted_value = result['field_value']
+def pseudonymise(field_name: str, values: list[str]) -> list[str]:
+    response = lambda_client.invoke(
+        FunctionName='pseudonymisation-lambda',
+        InvocationType='RequestResponse',
+        Payload=json.dumps({
+            'action': 'encrypt',
+            'field_name': field_name,
+            'field_value': values
+        })
+    )
+    result = json.loads(response['Payload'].read())
 
-# Encrypt a list of values
-response = lambda_client.invoke(
-    FunctionName='pseudonymisation-lambda',
-    InvocationType='RequestResponse',
-    Payload=json.dumps({
-        'action': 'encrypt',
-        'field_name': 'mrn',
-        'field_value': ['MRN001', 'MRN002', 'MRN003'],
-        'correlation_id': 'my-correlation-id'
-    })
-)
+    if 'error' in result:
+        raise ValueError(result['error'])
 
-result = json.loads(response['Payload'].read())
-encrypted_list = result['field_value']
+    return result['field_value']
 
-# Reidentify
-response = lambda_client.invoke(
-    FunctionName='pseudonymisation-lambda',
-    InvocationType='RequestResponse',
-    Payload=json.dumps({
-        'action': 'reidentify',
-        'field_name': 'nhs_number',
-        'field_value': encrypted_value,
-        'correlation_id': 'my-correlation-id'
-    })
-)
 
-result = json.loads(response['Payload'].read())
-original_value = result['field_value']
+# Usage
+nhs_pseudonyms = pseudonymise('nhs_number', ['1234567890', '0987654321'])
 ```
 
 ## Environment Variables
 
-Required:
+| Variable                   | Description                                       |
+|----------------------------|---------------------------------------------------|
+| `SECRET_NAME_KMS_KEY`      | Secrets Manager name containing KMS key ARN       |
+| `SECRET_NAME_KEY_VERSIONS` | Secrets Manager name containing key versions JSON |
+| `ALGORITHM_ID`             | Algorithm identifier (e.g., `aes-siv`)            |
+| `CACHE_TTL_HOURS`          | Data key cache TTL in hours (default: 1)          |
 
-- `SECRET_NAME_KMS_KEY` - Name of AWS Secrets Manager secret containing KMS key ID `arn:aws:kms:region:value`
-- `SECRET_NAME_KEY_VERSIONS` - Name of secret containing key versions JSON: `{"current": "v1", "keys": {"v1": "base64-encoded-key"}}`
-- `ALGORITHM_ID` - Algorithm identifier (e.g., "AES-SIV")
+### Key Versions Secret Format
 
-## Key Generation Pattern
-
-This implementation uses **Envelope Encryption with Manual Data Key Rotation**. Data keys are generated once using KMS
-`generate_data_key`, then stored in encrypted form in Secrets Manager. When needed, these encrypted data keys are
-decrypted via KMS `decrypt`, ensuring deterministic encryption - the same plaintext data key is always returned for a
-given version.
-
-To generate new encrypted data keys, use the helper script (this can be automated for future project phases):
-
-```bash
-python dev_utils/generate_encrypted_key.py --kms-key-id <KMS_ARN> --version v1
-python dev_utils/generate_encrypted_key.py --kms-key-id alias/pseudonymisation-key --version v2 --add-to-existing
+```json
+{
+  "current": "v1",
+  "keys": {
+    "v1": "base64-encoded-encrypted-data-key"
+  }
+}
 ```
 
-## Key Features
+## Key Rotation
 
-- **Single field processing** - One field at a time, simplifies caller logic
-- **List support** - Automatically handles both single values and lists
-- **Correlation tracking** - Pass through correlation_id for distributed tracing
-- **Simple interface** - No HTTP concepts, just pure data transformation
-- **Direct invocation** - Optimized for Lambda-to-Lambda calls, no API Gateway overhead
+The service supports seamless key rotation:
+
+1. **Encryption** always uses `current` version
+2. **Decryption** tries `current` first, then falls back to older versions
+3. Data encrypted with old keys remains decryptable
+
+To rotate keys:
+
+```bash
+# Generate new key version
+python dev_utils/key_management/generate_encrypted_key.py \
+    --kms-key-id alias/pseudonymisation-key \
+    --version v2 \
+    --add-to-existing
+
+# Update SECRET_NAME_KEY_VERSIONS in Secrets Manager:
+# {"current": "v2", "keys": {"v1": "...", "v2": "..."}}
+```
+
+**Envelope Encryption**: Data keys are pre-generated, encrypted with KMS, and stored in Secrets Manager.
+At runtime, KMS decrypts the data key (deterministic operation), which is then used for AES-SIV encryption.

@@ -44,5 +44,5 @@ Please follow the [naming convention](./layers/README.md) when creating a new pi
 
 ## Contact
 
-For questions or further information about the Somerset Linked Data Platform or this repository, please contact hannah.goodall2@nhs.net
+For questions or further information about the Somerset Linked Data Platform or this repository, please contact somicb.pophealth@nhs.net
 
